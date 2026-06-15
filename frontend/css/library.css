@@ -1,0 +1,80 @@
+/* =================================================================
+   KENSHICHORD — LIBRARY
+   Browse, search, filter
+   ================================================================= */
+
+.library-head {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  gap: var(--s-5);
+  margin-bottom: var(--s-6);
+  flex-wrap: wrap;
+}
+.library-head h1 { margin-bottom: var(--s-2); }
+.library-head p { color: var(--text-muted); margin: 0; }
+
+.library-search {
+  flex: 1; max-width: 420px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-4);
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 var(--s-3);
+  transition: all var(--d-2) var(--ease);
+}
+.library-search:focus-within { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-glow); }
+.library-search input {
+  flex: 1; background: transparent; border: 0; outline: 0;
+  padding: 10px 0; color: var(--washi); font-size: 14px;
+}
+.library-search .icon { color: var(--text-muted); }
+
+.library-filters {
+  display: flex; gap: var(--s-2);
+  margin-bottom: var(--s-5);
+  flex-wrap: wrap;
+  padding-bottom: var(--s-4);
+  border-bottom: 1px solid var(--border-soft);
+}
+.filter-chip {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  transition: all var(--d-2) var(--ease);
+}
+.filter-chip:hover { color: var(--washi); border-color: var(--border-strong); }
+.filter-chip.active { background: var(--crimson); color: var(--washi); border-color: var(--crimson-dark); }
+.filter-chip .num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-left: 6px;
+  opacity: .7;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--s-4);
+}
+@media (max-width: 600px) { .library-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 420px) { .library-grid { grid-template-columns: 1fr; } }
+
+.empty-state {
+  text-align: center;
+  padding: var(--s-9) var(--s-5);
+  color: var(--text-muted);
+}
+.empty-state .icon { font-size: 64px; color: var(--gold-dim); margin-bottom: var(--s-4); }
+.empty-state h3 { font-family: var(--font-display); margin-bottom: var(--s-2); color: var(--washi); }
+
+.library-footer {
+  margin-top: var(--s-7);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.library-footer .num { color: var(--gold); font-weight: 700; }

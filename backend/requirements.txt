@@ -1,0 +1,35 @@
+# KenshiChord backend — FASE 1
+# Python 3.10+ recommended
+
+# Core
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.13.3
+# MySQL (uncomment kalau udah pake MySQL — default dev pake SQLite)
+# pymysql==1.1.1
+# cryptography==43.0.1
+
+# Config & validation
+pydantic==2.9.2
+pydantic-settings==2.6.0
+
+# YouTube
+yt-dlp==2024.10.7
+
+# Fuzzy matching (untuk cache artist/title)
+rapidfuzz==3.10.1
+
+# Audio (dipakai pipeline FASE 2 juga)
+# librosa==0.10.2
+# soundfile==0.12.1
+
+# ML (FASE 2, belum dipakai FASE 1)
+# torch torchvision torchaudio
+# demucs
+# whisperx
+# autochord
+# allin1

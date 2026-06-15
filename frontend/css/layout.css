@@ -1,0 +1,114 @@
+/* =================================================================
+   KENSHICHORD — LAYOUT
+   Header, footer, page shell
+   ================================================================= */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 2;
+}
+
+/* === HEADER === */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: var(--header-h);
+  background: rgba(11, 11, 13, .85);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border-bottom: 1px solid var(--border-soft);
+}
+.site-header::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold) 50%, transparent);
+  opacity: .35;
+}
+.header-inner {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-5);
+}
+.brand { display: flex; align-items: center; gap: var(--s-3); }
+.brand-logo {
+  width: 220px;
+  height: auto;
+  transition: transform var(--d-3) var(--ease-snap), filter var(--d-3) var(--ease);
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,.5));
+}
+.brand:hover .brand-logo { transform: rotate(-2deg) scale(1.04); filter: drop-shadow(0 4px 16px var(--crimson-glow)); }
+
+.nav { display: flex; align-items: center; gap: var(--s-2); }
+.nav a {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  border-radius: var(--r-3);
+  transition: all var(--d-2) var(--ease);
+  position: relative;
+}
+.nav a:hover { color: var(--washi); background: var(--surface-hover); }
+.nav a.active { color: var(--gold); }
+.nav a.active::after {
+  content: "";
+  position: absolute; left: 14px; right: 14px; bottom: 2px; height: 1px;
+  background: var(--gold);
+}
+
+/* === FOOTER === */
+.site-footer {
+  margin-top: var(--s-9);
+  padding: var(--s-7) 0 var(--s-6);
+  border-top: 1px solid var(--border-soft);
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.3));
+}
+.footer-inner {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: var(--s-6);
+  margin-bottom: var(--s-5);
+}
+.footer-col h4 {
+  font-size: 12px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: var(--s-3);
+  font-family: var(--font-display);
+}
+.footer-col a, .footer-col li {
+  display: block;
+  padding: 4px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  transition: color var(--d-2) var(--ease);
+}
+.footer-col a:hover { color: var(--gold); }
+.footer-bottom {
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border-soft);
+  display: flex; justify-content: space-between; align-items: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.footer-bottom .copy { font-family: var(--font-jp); letter-spacing: .15em; }
+
+/* === MAIN === */
+main { flex: 1; }
+
+/* === RESPONSIVE === */
+@media (max-width: 760px) {
+  :root { --header-h: 60px; }
+  .nav a { padding: 6px 8px; font-size: 12px; }
+  .nav a.active::after { display: none; }
+  .footer-inner { grid-template-columns: 1fr; gap: var(--s-5); }
+  .footer-bottom { flex-direction: column; gap: var(--s-2); text-align: center; }
+}

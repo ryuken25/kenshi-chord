@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Song — KenshiChord</title>
+  <meta name="description" content="Chord + lirik tersinkronisasi. Transpose, diagram chord, auto-scroll." />
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/song.css" />
+</head>
+<body>
+  <span class="corner-mark tl"></span>
+  <span class="corner-mark tr"></span>
+  <span class="corner-mark bl"></span>
+  <span class="corner-mark br"></span>
+
+  <div class="page">
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="index.html">
+          <img class="brand-logo" src="assets/logo.svg" alt="" />
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a href="library.html">Library</a>
+          <a class="active" href="song.html">Song</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <div class="container" style="padding-top: var(--s-5);">
+        <!-- ============ SONG HEADER ============ -->
+        <header class="song-header">
+          <div class="song-meta">
+            <div class="crumbs">
+              <a href="library.html">Library</a>
+              <span>›</span>
+              <span id="crumb-artist">Artist</span>
+            </div>
+            <div>
+              <h1 id="song-title">Loading…</h1>
+              <div class="artist" id="song-artist">—</div>
+            </div>
+            <div class="row" id="song-tags">
+              <span class="badge badge-ai">AI Generated</span>
+              <span class="badge badge-gold"><span class="mono" id="tag-key">—</span> Key</span>
+              <span class="badge"><span class="mono" id="tag-bpm">—</span> BPM</span>
+              <span class="badge"><span class="mono" id="tag-capo">Capo 0</span></span>
+              <span class="badge"><span class="mono" id="tag-time">4/4</span></span>
+              <span class="badge"><span class="jp" id="tag-lang">—</span></span>
+            </div>
+          </div>
+
+          <div class="player-wrap">
+            <div id="yt-player" class="player-fallback" aria-hidden="true">
+              <span class="icon" aria-hidden="true">▶</span>
+              <div>
+                <strong>Player YouTube</strong>
+                <p class="muted" style="margin-top: 4px;">Akan muncul di sini saat backend aktif.</p>
+                <p class="muted" style="font-size: 11px;">Mock mode: gunakan tombol Play di toolbar untuk simulasi.</p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <!-- ============ TOOLBAR ============ -->
+        <div class="song-toolbar">
+          <div class="container" style="padding: 0;">
+            <div class="toolbar">
+              <!-- Play controls -->
+              <div class="toolbar-group">
+                <button class="btn btn-gold" id="btn-play" aria-label="Play / pause">
+                  <span id="play-icon">▶</span>
+                  <span id="play-label">Play</span>
+                </button>
+                <button class="btn btn-ghost btn-sm" id="btn-restart" aria-label="Restart">↺</button>
+              </div>
+
+              <div class="toolbar-group">
+                <span class="toolbar-label">Transpose</span>
+                <div class="transpose-control">
+                  <button id="tr-minus" aria-label="Down">−</button>
+                  <span class="val" id="tr-val">0</span>
+                  <button id="tr-plus" aria-label="Up">+</button>
+                </div>
+                <button class="btn btn-ghost btn-sm" id="tr-reset" title="Reset transpose">reset</button>
+              </div>
+
+              <div class="toolbar-group">
+                <span class="toolbar-label">Speed</span>
+                <div class="segmented" id="speed-seg" role="group" aria-label="Playback speed">
+                  <button data-speed="0.5">0.5×</button>
+                  <button data-speed="0.75">0.75×</button>
+                  <button data-speed="1" class="active">1×</button>
+                  <button data-speed="1.25">1.25×</button>
+                  <button data-speed="1.5">1.5×</button>
+                </div>
+              </div>
+
+              <div class="toolbar-group">
+                <span class="toolbar-label">Ukuran</span>
+                <div class="transpose-control">
+                  <button id="fs-minus" aria-label="Kecilkan font">−</button>
+                  <span class="val" id="fs-val" style="cursor: pointer;" title="Reset">100%</span>
+                  <button id="fs-plus" aria-label="Besarkan font">+</button>
+                </div>
+              </div>
+
+              <div class="toolbar-group">
+                <span class="toolbar-label">Instrumen</span>
+                <div class="segmented" id="instr-seg" role="group" aria-label="Instrument">
+                  <button data-instr="guitar" class="active" title="Gitar">🎸</button>
+                  <button data-instr="ukulele" title="Ukulele">🎶</button>
+                  <button data-instr="piano" title="Piano">🎹</button>
+                </div>
+              </div>
+
+              <div class="toolbar-group">
+                <span class="toolbar-label">Romaji</span>
+                <div class="segmented" id="romaji-seg" role="group" aria-label="Romaji mode">
+                  <button data-romaji="off" class="active" title="Sembunyikan romaji">Off</button>
+                  <button data-romaji="ro" title="Hanya tampilkan romaji">Romaji</button>
+                  <button data-romaji="both" title="Tampilkan keduanya">両方</button>
+                </div>
+              </div>
+
+              <div class="toolbar-group" style="border-right: 0;">
+                <label class="toolbar-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                  Chord
+                  <span class="switch"><input type="checkbox" id="opt-chord" checked /><span class="slider"></span></span>
+                </label>
+                <label class="toolbar-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                  Sound
+                  <span class="switch"><input type="checkbox" id="opt-sound" /><span class="slider"></span></span>
+                </label>
+                <label class="toolbar-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                  Metro
+                  <span class="switch"><input type="checkbox" id="opt-metronome" /><span class="slider"></span></span>
+                </label>
+                <label class="toolbar-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                  Auto-scroll
+                  <span class="switch"><input type="checkbox" id="opt-autoscroll" checked /><span class="slider"></span></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ MAIN GRID: viewer + sidebar ============ -->
+        <div class="song-body">
+          <article class="viewer" id="viewer" aria-label="Chord and lyric viewer">
+            <div class="empty-state">
+              <div class="loader-sword" aria-hidden="true"></div>
+              <h3>Memuat lirik &amp; chord…</h3>
+            </div>
+          </article>
+
+          <aside class="song-sidebar">
+            <div class="diagram-card">
+              <div class="diagram-card-head">
+                <h3 id="diagram-instr-label">Gitar</h3>
+                <span class="now" id="diagram-chord-name">—</span>
+              </div>
+              <div class="diagram-svg-wrap" id="diagram-svg">
+                <div class="diagram-empty">
+                  <span class="icon" aria-hidden="true">🎸</span>
+                  <span>Pilih chord apa pun untuk melihat diagramnya</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-list">
+              <h4>Section</h4>
+              <div id="section-buttons" style="display: contents;">
+                <!-- generated by song-view.js -->
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <div class="footer-bottom" style="border-top: 0; padding-top: 0;">
+          <span>© 2026 KenshiChord</span>
+          <span class="copy jp">剣士コード</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/mock-data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/chord-data.js"></script>
+  <script src="js/chord-utils.js"></script>
+  <script src="js/chord-diagram.js"></script>
+  <script src="js/sync-engine.js"></script>
+  <script src="js/song-view.js"></script>
+</body>
+</html>

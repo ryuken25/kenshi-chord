@@ -1,0 +1,109 @@
+/* =================================================================
+   KENSHICHORD — DESIGN TOKENS
+   Sumie ink wash × modern samurai
+   ================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;900&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Shippori+Mincho:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  /* === Color: sumie ink palette === */
+  --sumi:           #0B0B0D;
+  --sumi-2:         #111114;
+  --charcoal:       #16161A;
+  --charcoal-2:     #1F1F25;
+  --charcoal-3:     #2A2A32;
+
+  --crimson:        #C1121F;
+  --crimson-2:      #E01E2B;
+  --crimson-dark:   #7A0E14;
+  --crimson-glow:   rgba(193, 18, 31, 0.45);
+
+  --gold:           #D4AF37;
+  --gold-2:         #F2C94C;
+  --gold-dim:       #8C7424;
+  --gold-glow:      rgba(212, 175, 55, 0.35);
+
+  --washi:          #F4F1EA;
+  --washi-2:        #E8E2D2;
+  --washi-3:        #D8D0BA;
+  --washi-dim:      rgba(244, 241, 234, 0.6);
+
+  --ink-muted:      #8A8A93;
+  --ink-soft:       #B5B5BC;
+  --ink-strong:     #E8E8EC;
+
+  --emerald:        #2A9D8F;
+  --indigo:         #4A5BC2;
+
+  /* === Semantic === */
+  --bg:             var(--sumi);
+  --bg-elev:        var(--charcoal);
+  --bg-elev-2:      var(--charcoal-2);
+  --surface:        rgba(255, 255, 255, 0.03);
+  --surface-hover:  rgba(255, 255, 255, 0.06);
+  --border:         rgba(212, 175, 55, 0.18);
+  --border-soft:    rgba(255, 255, 255, 0.08);
+  --border-strong:  rgba(212, 175, 55, 0.45);
+
+  --text:           var(--washi);
+  --text-muted:     var(--ink-muted);
+  --text-dim:       #5A5A65;
+  --accent:         var(--crimson);
+  --accent-hover:   var(--crimson-2);
+  --gold-accent:    var(--gold);
+
+  /* === Type === */
+  --font-display:   'Cinzel', 'Shippori Mincho', serif;
+  --font-jp:        'Shippori Mincho', 'Noto Sans JP', serif;
+  --font-body:      'Inter', 'Noto Sans JP', system-ui, sans-serif;
+  --font-mono:      'JetBrains Mono', 'Courier New', monospace;
+
+  /* === Spacing scale === */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  24px;
+  --s-6:  32px;
+  --s-7:  48px;
+  --s-8:  64px;
+  --s-9:  96px;
+  --s-10: 128px;
+
+  /* === Radius === */
+  --r-1:  2px;
+  --r-2:  4px;
+  --r-3:  8px;
+  --r-4:  12px;
+  --r-5:  16px;
+  --r-pill: 999px;
+
+  /* === Shadow / Glow === */
+  --shadow-1: 0 1px 2px rgba(0,0,0,.5);
+  --shadow-2: 0 6px 20px rgba(0,0,0,.5);
+  --shadow-3: 0 20px 60px rgba(0,0,0,.6);
+  --glow-crimson: 0 0 0 1px var(--crimson), 0 0 22px var(--crimson-glow);
+  --glow-gold:    0 0 0 1px var(--gold), 0 0 22px var(--gold-glow);
+
+  /* === Motion === */
+  --ease:        cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out:    cubic-bezier(0, 0, 0.2, 1);
+  --ease-in:     cubic-bezier(0.4, 0, 1, 1);
+  --ease-snap:   cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  --d-1: 90ms;
+  --d-2: 160ms;
+  --d-3: 260ms;
+  --d-4: 420ms;
+  --d-5: 700ms;
+
+  /* === Layout === */
+  --max-w:   1280px;
+  --header-h: 72px;
+  --sidebar-w: 280px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --d-1: 0ms; --d-2: 0ms; --d-3: 0ms; --d-4: 0ms; --d-5: 0ms;
+  }
+}

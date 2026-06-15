@@ -1,0 +1,146 @@
+/* =================================================================
+   KENSHICHORD — BASE
+   Reset, typography, washi paper background
+   ================================================================= */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+html { color-scheme: dark; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+
+  /* Washi paper texture: layered sumi gradients + subtle noise */
+  background-image:
+    radial-gradient(ellipse 80% 60% at 20% 0%, rgba(193, 18, 31, 0.08), transparent 60%),
+    radial-gradient(ellipse 70% 50% at 100% 100%, rgba(212, 175, 55, 0.06), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(244, 241, 234, 0.02), transparent 70%),
+    linear-gradient(180deg, #0B0B0D 0%, #111114 50%, #0B0B0D 100%);
+  background-attachment: fixed;
+  position: relative;
+}
+
+/* Subtle ink grain overlay */
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.035 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+  opacity: .9;
+  mix-blend-mode: overlay;
+}
+
+/* Vertical "kaigara" conch shell-like accent on right edge */
+body::after {
+  content: "";
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg, transparent 0%, var(--gold-dim) 30%, var(--gold) 50%, var(--gold-dim) 70%, transparent 100%);
+  opacity: .35;
+  pointer-events: none;
+  z-index: 1;
+}
+
+img, svg { max-width: 100%; display: block; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+input, select, textarea { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+ul, ol { padding: 0; margin: 0; list-style: none; }
+hr { border: 0; height: 1px; background: var(--border); margin: var(--s-5) 0; }
+
+/* === Headings === */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: .02em;
+  margin: 0;
+  color: var(--washi);
+}
+h1 { font-size: clamp(2.4rem, 5vw, 3.6rem); letter-spacing: .05em; }
+h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); }
+h3 { font-size: 1.25rem; }
+
+p { margin: 0 0 var(--s-4); color: var(--text); }
+small { color: var(--text-muted); font-size: 12px; }
+code, kbd, samp { font-family: var(--font-mono); }
+
+/* === Selection === */
+::selection { background: var(--crimson); color: var(--washi); }
+
+/* === Scrollbar === */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--sumi); }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--charcoal-3), var(--charcoal-2));
+  border-radius: 4px;
+  border: 2px solid var(--sumi);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--crimson-dark); }
+
+/* === Focus === */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+
+/* === Utility === */
+.container { max-width: var(--max-w); margin: 0 auto; padding: 0 var(--s-5); position: relative; z-index: 2; }
+.mono { font-family: var(--font-mono); }
+.jp { font-family: var(--font-jp); }
+.muted { color: var(--text-muted); }
+.gold { color: var(--gold); }
+.crimson { color: var(--crimson); }
+.center { text-align: center; }
+.divider {
+  display: block;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold-dim) 20%, var(--gold) 50%, var(--gold-dim) 80%, transparent);
+  opacity: .5;
+}
+.divider-thick {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--gold) 50%, transparent 100%);
+  position: relative;
+}
+.divider-thick::before {
+  content: "◆";
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg);
+  color: var(--gold);
+  font-size: 10px;
+  padding: 0 8px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+/* === Decorative Japanese corner === */
+.corner-mark {
+  position: fixed;
+  width: 80px; height: 80px;
+  pointer-events: none;
+  z-index: 1;
+  opacity: .25;
+}
+.corner-mark.tl { top: 12px; left: 12px; border-top: 1px solid var(--gold); border-left: 1px solid var(--gold); }
+.corner-mark.tr { top: 12px; right: 12px; border-top: 1px solid var(--gold); border-right: 1px solid var(--gold); }
+.corner-mark.bl { bottom: 12px; left: 12px; border-bottom: 1px solid var(--gold); border-left: 1px solid var(--gold); }
+.corner-mark.br { bottom: 12px; right: 12px; border-bottom: 1px solid var(--gold); border-right: 1px solid var(--gold); }

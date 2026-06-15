@@ -1,0 +1,377 @@
+/* =================================================================
+   KENSHICHORD — SONG VIEW
+   Chord-over-lyric viewer ala Chordify + player + diagram panel
+   ================================================================= */
+
+.song-header {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: var(--s-6);
+  align-items: start;
+  margin-bottom: var(--s-5);
+}
+@media (max-width: 960px) { .song-header { grid-template-columns: 1fr; } }
+
+.song-meta { display: flex; flex-direction: column; gap: var(--s-3); }
+.song-meta .crumbs { display: flex; gap: var(--s-2); align-items: center; font-size: 12px; color: var(--text-muted); letter-spacing: .08em; }
+.song-meta .crumbs a:hover { color: var(--gold); }
+.song-meta h1 {
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: .03em;
+  line-height: 1.1;
+  margin: 0;
+}
+.song-meta .artist { font-family: var(--font-jp); font-size: 16px; color: var(--gold); letter-spacing: .05em; }
+.song-meta .row { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-2); }
+.song-meta .row .badge { font-size: 12px; padding: 4px 10px; }
+
+.player-wrap {
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-4);
+  overflow: hidden;
+  position: relative;
+  aspect-ratio: 16/9;
+}
+.player-wrap iframe { width: 100%; height: 100%; display: block; border: 0; }
+.player-fallback {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, var(--charcoal-2), var(--sumi));
+  color: var(--text-muted);
+  flex-direction: column; gap: var(--s-2);
+  text-align: center;
+  padding: var(--s-5);
+}
+.player-fallback .icon { font-size: 48px; color: var(--gold); margin-bottom: var(--s-2); }
+
+/* === TOOLBAR === */
+.song-toolbar {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 20;
+  background: rgba(11, 11, 13, .92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: var(--s-3) 0;
+  margin-bottom: var(--s-5);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* === TRANSPOSE === */
+.transpose-control { display: flex; align-items: center; gap: 2px; background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--r-3); padding: 2px; }
+.transpose-control button {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700;
+  color: var(--text-muted);
+  border-radius: var(--r-2);
+  transition: all var(--d-2) var(--ease);
+}
+.transpose-control button:hover { color: var(--gold); background: var(--surface-hover); }
+.transpose-control .val {
+  min-width: 56px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold);
+  padding: 0 4px;
+}
+
+/* === MAIN LAYOUT === */
+.song-body {
+  display: grid;
+  grid-template-columns: 1fr var(--sidebar-w);
+  gap: var(--s-5);
+  align-items: start;
+}
+@media (max-width: 1024px) { .song-body { grid-template-columns: 1fr; } }
+
+/* === CHORD-OVER-LYRIC VIEWER === */
+.viewer {
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-4);
+  padding: var(--s-6) var(--s-5);
+  font-size: 17px;            /* MASTER: diubah via JS lewat fontScale */
+  line-height: 1.5;
+  min-height: 600px;
+  position: relative;
+}
+.viewer-section-head {
+  display: flex; align-items: center; gap: var(--s-3);
+  margin: var(--s-6) 0 var(--s-4);
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: .25em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.viewer-section-head:first-child { margin-top: 0; }
+.viewer-section-head::before, .viewer-section-head::after {
+  content: "";
+  flex: 1; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold-dim) 50%, transparent);
+  opacity: .4;
+}
+.viewer-section-head .name { white-space: nowrap; }
+
+/* === LINE (lyric line with chord markers above) === */
+.line {
+  position: relative;
+  padding: 36px var(--s-3) 10px;     /* generous top padding untuk chord marker */
+  margin: 6px calc(var(--s-3) * -1);  /* sedikit gap antar baris */
+  border-radius: var(--r-2);
+  border-left: 2px solid transparent;
+  transition: all var(--d-3) var(--ease);
+}
+.line.active {
+  background: linear-gradient(90deg, rgba(193,18,31,.10), rgba(212,175,55,.07));
+  border-left-color: var(--crimson);
+}
+.line.active .word-jp { color: var(--washi); }
+
+/* Words container: flex, wrap, baseline align */
+.words { display: flex; flex-wrap: wrap; gap: 0 6px; align-items: baseline; }
+
+/* Each word: inline-flex column, jp on top, romaji below */
+.word {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: top;
+  padding: 0 2px;
+  line-height: 1.2;
+  color: var(--ink-soft);
+  font-family: var(--font-jp);
+  font-weight: 500;
+  transition: color var(--d-2) var(--ease);
+}
+.word-jp {
+  font-size: 1em;          /* inherit dari .viewer (master) */
+  font-family: inherit;
+  font-weight: inherit;
+  color: inherit;
+}
+.word-ro {
+  font-family: var(--font-mono);
+  font-size: 0.78em;        /* ~13.3px @ 17px base — lebih gedean dikit */
+  font-style: normal;       /* gak miring */
+  color: var(--text-muted);
+  letter-spacing: .02em;
+  display: none;
+  height: 1.2em;
+  line-height: 1;
+  margin-top: 2px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.line.active .word-ro { color: var(--gold); }
+
+/* === Romaji mode classes (set on #viewer) === */
+.viewer.mode-romaji-off  .word-ro { display: none; }
+.viewer.mode-romaji-off  .word-jp { display: inline; }
+.viewer.mode-romaji-ro   .word-jp { display: none; }
+.viewer.mode-romaji-ro   .word-ro { display: inline; }
+.viewer.mode-romaji-both .word-jp { display: inline; }
+.viewer.mode-romaji-both .word-ro { display: inline; }
+
+/* === Chord visibility === */
+.viewer.chord-hidden .chord-marker { display: none; }
+.viewer.chord-hidden .line { padding-top: 10px; }   /* collapse space when no chords */
+
+/* === Chord marker (positioned inside line padding) === */
+.chord-marker {
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.7em;             /* ikut scaling font viewer */
+  color: var(--gold);
+  padding: 0.18em 0.5em;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--gold-dim);
+  border-radius: var(--r-2);
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 2;
+  transition: all var(--d-2) var(--ease);
+  box-shadow: 0 2px 4px rgba(0,0,0,.4);
+}
+.chord-marker::after {
+  content: "";
+  position: absolute;
+  left: 50%; bottom: -5px;
+  width: 1px; height: 5px;
+  background: var(--gold-dim);
+  transform: translateX(-50%);
+}
+.chord-marker:hover, .chord-marker.active {
+  background: linear-gradient(180deg, var(--crimson-2), var(--crimson));
+  color: var(--washi);
+  border-color: var(--crimson-dark);
+  box-shadow: 0 0 14px var(--crimson-glow);
+  transform: translateX(-50%) scale(1.08);
+  z-index: 3;
+}
+.chord-marker.active::after { background: var(--crimson); }
+
+/* === Instrumental section: bar grid === */
+.bar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: var(--s-3);
+  margin: var(--s-3) 0;
+}
+.bar {
+  position: relative;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-3);
+  padding: var(--s-3) var(--s-3) var(--s-2);
+  min-height: 78px;
+  transition: all var(--d-2) var(--ease);
+  cursor: pointer;
+}
+.bar.active { border-color: var(--crimson); background: linear-gradient(180deg, rgba(193,18,31,.12), var(--bg-elev-2)); box-shadow: 0 0 12px var(--crimson-glow); }
+.bar .chord {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--gold);
+  margin-bottom: 6px;
+  text-align: center;
+  letter-spacing: .04em;
+}
+.bar.active .chord { color: var(--crimson-2); }
+.bar .beats {
+  display: flex; gap: 3px; margin-top: 6px;
+}
+.bar .beat {
+  flex: 1; height: 4px;
+  background: var(--charcoal-3);
+  border-radius: 2px;
+}
+.bar .beat.down { background: var(--gold-dim); }
+.bar.active .beat { background: var(--crimson-dark); }
+.bar.active .beat.down { background: var(--crimson-2); }
+.bar .num {
+  position: absolute;
+  top: 4px; right: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: .08em;
+}
+
+/* Empty state: full-width (NOT inside .bar-grid) */
+.empty-section {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  color: var(--text-muted);
+  font-style: italic;
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--r-3);
+  margin: var(--s-3) 0;
+  width: 100%;
+  background: var(--bg-elev-2);
+}
+.empty-section .icon { font-size: 20px; color: var(--gold); flex-shrink: 0; }
+
+/* === SIDEBAR (chord diagram + tools) === */
+.song-sidebar { display: flex; flex-direction: column; gap: var(--s-4); position: sticky; top: calc(var(--header-h) + 80px); }
+@media (max-width: 1024px) { .song-sidebar { position: static; } }
+
+.diagram-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-4);
+  padding: var(--s-4);
+}
+.diagram-card-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: var(--s-3);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+.diagram-card-head h3 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.diagram-card-head .now {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--crimson-2);
+  text-shadow: 0 0 12px var(--crimson-glow);
+}
+.diagram-svg-wrap { min-height: 200px; display: flex; align-items: center; justify-content: center; }
+
+.diagram-empty {
+  text-align: center; padding: var(--s-5);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.diagram-empty .icon { font-size: 32px; margin-bottom: var(--s-2); display: block; color: var(--gold-dim); }
+
+.section-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-4);
+  padding: var(--s-4);
+}
+.section-list h4 {
+  width: 100%;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: var(--s-2);
+}
+.section-list button {
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  transition: all var(--d-2) var(--ease);
+}
+.section-list button:hover { color: var(--washi); border-color: var(--gold); }
+.section-list button.active { background: var(--crimson); color: var(--washi); border-color: var(--crimson-dark); }
+
+/* === Toggle switch === */
+.switch { position: relative; display: inline-block; width: 38px; height: 20px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider {
+  position: absolute; inset: 0;
+  background: var(--charcoal-3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all var(--d-2) var(--ease);
+}
+.switch .slider::before {
+  content: ""; position: absolute;
+  left: 2px; top: 2px;
+  width: 16px; height: 16px;
+  background: var(--washi);
+  border-radius: 50%;
+  transition: all var(--d-2) var(--ease);
+}
+.switch input:checked + .slider { background: var(--crimson); }
+.switch input:checked + .slider::before { transform: translateX(18px); }

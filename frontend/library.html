@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Library — KenshiChord</title>
+  <meta name="description" content="Browse semua lagu yang sudah pernah dianalisis KenshiChord." />
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/home.css" />
+  <link rel="stylesheet" href="css/library.css" />
+</head>
+<body>
+  <span class="corner-mark tl"></span>
+  <span class="corner-mark tr"></span>
+  <span class="corner-mark bl"></span>
+  <span class="corner-mark br"></span>
+
+  <div class="page">
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="index.html">
+          <img class="brand-logo" src="assets/logo.svg" alt="" />
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a class="active" href="library.html">Library</a>
+          <a href="song.html">Song</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <div class="container" style="padding-top: var(--s-6);">
+        <!-- ============ HEAD ============ -->
+        <div class="library-head">
+          <div>
+            <h1>武器庫 <span class="muted" style="font-size: 18px; font-weight: 400; margin-left: 8px;">— Perpustakaan</span></h1>
+            <p>Semua lagu yang pernah Anda proses. Cache hit, instan.</p>
+          </div>
+          <div class="library-search">
+            <span class="icon" aria-hidden="true">⌕</span>
+            <input
+              id="search-input"
+              type="search"
+              placeholder="Cari judul, artis, atau lirik…"
+              autocomplete="off"
+            />
+          </div>
+        </div>
+
+        <!-- ============ FILTERS ============ -->
+        <div class="library-filters" id="filters">
+          <button class="filter-chip active" data-filter="all">Semua <span class="num" id="cnt-all">0</span></button>
+          <button class="filter-chip" data-filter="lang:ja">Jepang <span class="num" id="cnt-ja">0</span></button>
+          <button class="filter-chip" data-filter="lang:id">Indonesia <span class="num" id="cnt-id">0</span></button>
+          <button class="filter-chip" data-filter="lang:en">Inggris <span class="num" id="cnt-en">0</span></button>
+          <button class="filter-chip" data-filter="key:G">Key G</button>
+          <button class="filter-chip" data-filter="key:C">Key C</button>
+          <button class="filter-chip" data-filter="key:Am">Key Am</button>
+          <button class="filter-chip" data-filter="key:Dm">Key Dm</button>
+          <button class="filter-chip" data-filter="sort:new">Terbaru</button>
+          <button class="filter-chip" data-filter="sort:bpm">BPM ↑</button>
+        </div>
+
+        <!-- ============ GRID ============ -->
+        <div class="library-grid" id="library-grid">
+          <!-- Di-render oleh library.js -->
+        </div>
+
+        <div class="library-footer">
+          Menampilkan <span class="num" id="visible-count">0</span> dari <span class="num" id="total-count">0</span> lagu.
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <div class="footer-bottom" style="border-top: 0; padding-top: 0;">
+          <span>© 2026 KenshiChord</span>
+          <span class="copy jp">剣士コード</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script src="js/mock-data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/library.js"></script>
+</body>
+</html>

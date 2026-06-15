@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KenshiChord — Chord dari telinga AI</title>
+  <meta name="description" content="Platform AI auto-chord ala Chordify dengan tema samurai. Paste link YouTube, dapatkan chord + lirik tersinkronisasi secara otomatis." />
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/home.css" />
+</head>
+<body>
+  <span class="corner-mark tl"></span>
+  <span class="corner-mark tr"></span>
+  <span class="corner-mark bl"></span>
+  <span class="corner-mark br"></span>
+
+  <div class="page">
+    <!-- ============ HEADER ============ -->
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="index.html" aria-label="KenshiChord home">
+          <img class="brand-logo" src="assets/logo.svg" alt="" />
+        </a>
+        <nav class="nav" aria-label="Primary">
+          <a class="active" href="index.html">Home</a>
+          <a href="library.html">Library</a>
+          <a href="#how">Cara Pakai</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <!-- ============ HERO ============ -->
+      <section class="hero">
+        <div class="container hero-grid">
+          <div class="hero-text">
+            <img class="hero-brand" src="assets/logo.svg" alt="KenshiChord" />
+            <span class="hero-eyebrow">Sampai ketemu, pilih-pilih chord manual.</span>
+            <h1 class="hero-title">
+              Tempel link. <span class="accent">Dapat chord.</span>
+            </h1>
+            <p class="hero-tagline jp">耳で聴き、コードを見つけ、奏でる。</p>
+            <p class="hero-sub">
+              YouTube → chord + lirik, otomatis. Tujuh puluh detik, bukan satu jam.
+              Jepang, Indo, Inggris — semuanya bisa.
+            </p>
+
+            <form id="generate-form" class="input-row" novalidate>
+              <input
+                id="yt-url"
+                type="url"
+                placeholder="https://youtu.be/…"
+                autocomplete="off"
+                spellcheck="false"
+                required
+              />
+              <button class="btn btn-primary" type="submit">
+                <span aria-hidden="true">⚔</span>
+                <span>Generate</span>
+              </button>
+            </form>
+
+            <div class="hero-stats">
+              <div class="item"><span class="num">~70s</span><span class="lbl">per lagu</span></div>
+              <div class="item"><span class="num">87%</span><span class="lbl">akurasi chord</span></div>
+              <div class="item"><span class="num">∞</span><span class="lbl">cache hit</span></div>
+            </div>
+          </div>
+
+          <div class="hero-visual" aria-hidden="true">
+            <div class="hero-card-stack">
+              <div class="hero-floating-card card-1">
+                <div class="hfc-thumb t1"></div>
+                <div class="hfc-title">Soran Bushi</div>
+                <div class="hfc-artist">Tradisional · Hokkaido</div>
+                <div class="hfc-chord-line">
+                  <span class="chord-chip">Em</span>
+                  <span class="chord-chip">C</span>
+                  <span class="chord-chip">G</span>
+                  <span class="chord-chip">D</span>
+                </div>
+              </div>
+              <div class="hero-floating-card card-2">
+                <div class="hfc-thumb t2"></div>
+                <div class="hfc-title">Sakura Sakura</div>
+                <div class="hfc-artist">Folk Jepang</div>
+                <div class="hfc-chord-line">
+                  <span class="chord-chip">C</span>
+                  <span class="chord-chip">G7</span>
+                  <span class="chord-chip">F</span>
+                </div>
+              </div>
+              <div class="hero-floating-card card-3">
+                <div class="hfc-thumb t3"></div>
+                <div class="hfc-title">Haru no Ogawa</div>
+                <div class="hfc-artist">Akiko Yano</div>
+                <div class="hfc-chord-line">
+                  <span class="chord-chip">Am</span>
+                  <span class="chord-chip">Dm</span>
+                  <span class="chord-chip">E7</span>
+                </div>
+              </div>
+              <img class="hero-hinomaru" src="assets/hinomaru.svg" alt="" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ HOW IT WORKS ============ -->
+      <section class="section" id="how">
+        <div class="container">
+          <div class="section-head">
+            <span class="eyebrow">三 つの 段階</span>
+            <h2>Yang perlu lo lakuin: tempel link.</h2>
+            <p>Sisanya? Pipelines ML kami yang begadang. Lo tinggal dengerin hasilnya.</p>
+          </div>
+
+          <div class="steps">
+            <div class="step" data-step="壱">
+              <span class="step-icon" aria-hidden="true">🎵</span>
+              <h3>Tempel link</h3>
+              <p>URL YouTube. Bukan Spotify, bukan SoundCloud. YouTube. Itu doang syaratnya.</p>
+            </div>
+            <div class="step" data-step="弐">
+              <span class="step-icon" aria-hidden="true">🗡️</span>
+              <h3>AI dengerin</h3>
+              <p>Demucs pisahin vokal. Beat dilacak. Chord dideteksi. Lirik ditranskrip pake WhisperX. Liat aja indikator emas di loading — tiap step keliatan.</p>
+            </div>
+            <div class="step" data-step="参">
+              <span class="step-icon" aria-hidden="true">📜</span>
+              <h3>Lo main</h3>
+              <p>Chord nyala sendiri ngikutin kata. Transpose kalo terlalu tinggi/rendah. Hide chord kalo ngalangin. Loop bagian yang susah. Beres.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ LIBRARY PREVIEW ============ -->
+      <section class="section">
+        <div class="container">
+          <div class="section-head">
+            <span class="eyebrow">武器 庫</span>
+            <h2>Yang udah pernah diproses.</h2>
+            <p>Cache hit = langsung keluar, tanpa nunggu. Kayak buka file yang udah disimpen.</p>
+          </div>
+
+          <div class="library-preview" id="library-preview">
+            <!-- Diisi oleh home.js dari mock data -->
+          </div>
+
+          <div class="center" style="margin-top: var(--s-5)">
+            <a class="btn btn-ghost" href="library.html">Lihat semua di Library →</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CTA ============ -->
+      <section class="section">
+        <div class="container">
+          <div class="cta-band">
+            <h2>Coba satu lagu dulu.</h2>
+            <p>Tujuh puluh detik, gratis. Kalo hasilnya jelek, ya udah — chord manual aja lagi.</p>
+            <a class="btn btn-gold btn-lg" href="#top" onclick="document.getElementById('yt-url').focus(); return false;">
+              <span aria-hidden="true">⚔</span>
+              <span>Tempel link</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============ FOOTER ============ -->
+    <footer class="site-footer">
+      <div class="container">
+        <div class="footer-inner">
+          <div class="footer-col">
+            <img src="assets/logo.svg" alt="KenshiChord" style="height: 40px; margin-bottom: var(--s-3);" />
+            <p style="font-size: 13px; color: var(--text-muted); max-width: 320px;">
+              Bukan tempat belajar. Tempat maen.
+            </p>
+          </div>
+          <div class="footer-col">
+            <h4>Produk</h4>
+            <ul>
+              <li><a href="index.html">Home</a></li>
+              <li><a href="library.html">Library</a></li>
+              <li><a href="song.html">Demo Song View</a></li>
+            </ul>
+          </div>
+          <div class="footer-col">
+            <h4>Tentang</h4>
+            <ul>
+              <li><a href="#how">Cara kerja</a></li>
+              <li><a href="#">Status</a></li>
+              <li><a href="#">GitHub</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>© 2026 KenshiChord — 剣士コード</span>
+          <span class="copy">Listen. Detect. Play.</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Loading overlay (shown when user submits URL) -->
+  <div class="overlay-loading" id="loading-overlay" role="status" aria-live="polite">
+    <div class="panel">
+      <div class="loader-sword" aria-hidden="true"></div>
+      <h2 class="jp" style="margin-top: var(--s-4); color: var(--gold); font-size: 18px; letter-spacing: .15em;">コードを聞く — Mendengarkan…</h2>
+      <p id="loading-msg" class="muted" style="margin-top: var(--s-2);">Mengambil metadata…</p>
+      <div class="progress gold" style="margin-top: var(--s-4); max-width: 360px; margin-left: auto; margin-right: auto;">
+        <div class="bar" id="loading-bar" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/mock-data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/home.js"></script>
+</body>
+</html>
