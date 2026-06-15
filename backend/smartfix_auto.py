@@ -671,6 +671,218 @@ def detect_sections(words_lines, btc, duration, gap_threshold=2.5):
     return sections
 
 
+# ============ Phase 2.5 safe wrappers ============
+import os
+
+def _flag(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
+
+def _maybe_separate_vocals(wav: Path, out_dir: Path) -> Path:
+    """Return isolated-vocals WAV when USE_DEMUCS=true and it succeeds, else the original mix."""
+    if not _flag("USE_DEMUCS"):
+        return wav
+    try:
+        stem_dir = out_dir / f"demucs_{wav.stem}"
+        stem_dir.mkdir(parents=True, exist_ok=True)
+        cmd = ["python", "-m", "demucs", "--two-stems", "vocals",
+               "-n", "htdemucs", "-o", str(stem_dir), str(wav)]
+        r = subprocess.run(cmd, capture_output=True, check=False)
+        if r.returncode != 0:
+            log.warning(" demucs failed (rc=%d); using mix", r.returncode)
+            return wav
+        for p in stem_dir.rglob("vocals.wav"):
+            log.info(" → vocals stem: %s", p)
+            return p
+        return wav
+    except Exception as e:
+        log.warning(" demucs unavailable (%s); using mix", type(e).__name__)
+        return wav
+
+def _safe_rhythm(wav: Path) -> dict:
+    """Smart beats/BPM with graceful fallback."""
+    try:
+        from app.smart import beats as B
+        r = B.analyze_rhythm(wav)
+        bpm = int(round(float(r["bpm"])))
+        if not (40 <= bpm <= 240) or not r.get("beats"):
+            raise ValueError(f"implausible rhythm: bpm={bpm}, beats={len(r.get('beats', []))}")
+        r["bpm"] = bpm
+        r.setdefault("beats_per_bar", 4)
+        r.setdefault("time_sig", f"{r['beats_per_bar']}/4")
+        r.setdefault("confidence", 0.5)
+        return r
+    except Exception as e:
+        log.warning(" analyze_rhythm fallback (%s: %s)", type(e).__name__, e)
+        bpm = _estimate_bpm(wav) or 120
+        return {"bpm": int(bpm), "beats": [], "downbeats": [],
+                "beats_per_bar": 4, "time_sig": "4/4", "confidence": 0.0}
+
+def _safe_key(wav: Path) -> dict:
+    """Smart key detection with graceful fallback."""
+    try:
+        from app.smart import key as K
+        k = K.detect_key(wav)
+        if not k.get("key"):
+            raise ValueError("empty key")
+        k.setdefault("confidence", 0.5)
+        return k
+    except Exception as e:
+        log.warning(" detect_key fallback (%s: %s)", type(e).__name__, e)
+        return {"key": "C major", "mode": "major", "confidence": 0.0}
+
+def _safe_align(AL, vocals, line_objs, line_windows, lyrics_lines, duration):
+    """Run smart per-line MMS_FA. On total failure, fall back to even-split within each window."""
+    try:
+        aligned = AL.align_lines(vocals, line_objs, line_windows)
+        ok = sum(1 for a in aligned if a.get("words"))
+        if ok == 0:
+            raise ValueError("aligner produced 0 usable lines")
+        return aligned
+    except Exception as e:
+        log.warning(" align_lines fallback (%s: %s)", type(e).__name__, e)
+        return [_even_split_line(lo, win) for lo, win in zip(line_objs, line_windows)]
+
+def _even_split_line(lo, win):
+    """Fallback: evenly distribute syllables across the window."""
+    ws, we = win
+    syls = [(w_i, s_i) for w_i, w in enumerate(lo.words)
+            for s_i, _ in enumerate(getattr(w, "syllables", []))]
+    n = max(1, len(syls))
+    step = (we - ws) / n
+    words = []
+    k = 0
+    for w in lo.words:
+        sy = []
+        for s in getattr(w, "syllables", []):
+            sy.append({"romaji": s.romaji, "start": ws + k * step, "end": ws + (k + 1) * step})
+            k += 1
+        st = sy[0]["start"] if sy else ws
+        en = sy[-1]["end"] if sy else we
+        words.append({"surface": getattr(w, "surface", ""), "romaji": getattr(w, "romaji", ""),
+                      "start": st, "end": en, "syllables": sy})
+    return {"text": getattr(lo, "text", ""), "display": getattr(lo, "display", ""),
+            "start": ws, "end": we, "confidence": "low", "words": words}
+
+def _line_windows(lyrics_lines, line_objs, duration):
+    """One (start, end) window per source line, for the aligner."""
+    if lyrics_lines and len(line_objs) == len(lyrics_lines):
+        return [(max(0.0, ln["start"] - 0.3), min(duration, ln["end"] + 0.3))
+                for ln in lyrics_lines]
+    # Distribute proportionally by syllable count across the vocal span
+    v0 = lyrics_lines[0]["start"] if lyrics_lines else 0.0
+    v1 = lyrics_lines[-1]["end"] if lyrics_lines else duration
+    span = max(0.1, v1 - v0)
+    counts = [max(1, sum(len(getattr(w, "syllables", [])) for w in lo.words)) for lo in line_objs]
+    total = sum(counts)
+    windows, t = [], v0
+    for c in counts:
+        w = span * c / total
+        windows.append((max(0.0, t - 0.2), min(duration, t + w + 0.2)))
+        t += w
+    return windows
+
+def _parse_reference(reference_lyrics, R, AN):
+    """Parse reference lyrics with optional [chord] overrides (v2 format).
+
+    Returns (line_objs: List[LineRomaji], override_marks: List[List[(char_offset, chord_str)]])
+    Supports chord-only shorthand lines that attach to the NEXT lyric line.
+    NEVER injects characters into lyric text.
+    """
+    raw = [l.rstrip() for l in reference_lyrics.split("\n")]
+    line_objs, marks_all = [], []
+    pending = None
+    for ln in raw:
+        if not ln.strip():
+            continue
+        clean, marks = AN.parse_override(ln)
+        if clean.strip() == "" and marks:
+            # chord-only shorthand line
+            pending = (ln, marks)
+            continue
+        if not clean.strip():
+            continue
+        if pending is not None:
+            _, pend_marks = pending
+            n = max(1, len(clean))
+            spread = [(min(int(round(j / max(1, len(pend_marks)) * n)), n - 1), c)
+                      for j, (_, c) in enumerate(pend_marks)]
+            marks = spread + marks
+            pending = None
+        line_objs.append(R.romanize_line(clean))
+        marks_all.append(marks)
+    return line_objs, marks_all
+
+def _build_bars(btc, beat_grid, lines_out, duration):
+    """Build bar grid from BTC onsets, snapped to the real beat grid."""
+    first = lines_out[0]["start"] if lines_out else 0.0
+    last = lines_out[-1]["end"] if lines_out else duration
+    def snap(t):
+        if not beat_grid:
+            return t
+        return min(beat_grid, key=lambda b: abs(b - t))
+    bars = []
+    for cs, ce, cc in btc:
+        sc = simplify_chord(cc)
+        if sc == "N" or ce - cs < 0.3:
+            continue
+        if cs < first - 0.3 or cs >= last + 0.3:
+            continue
+        s = snap(cs)
+        if bars and root_of(bars[-1]["chords"][0]["chord"]) == root_of(sc):
+            bars[-1]["end"] = float(ce); bars[-1]["chords"][0]["end"] = float(ce)
+        else:
+            bars.append({"index": len(bars), "start": float(s), "end": float(ce),
+                         "chords": [{"chord": sc, "start": float(s), "end": float(ce)}]})
+    return bars
+
+def _persist_song(render, yt_id, artist, title, bpm, lang, wav, thumbnail_url):
+    """Save to DB (upsert by youtube_id). Returns song_id."""
+    from app.db import db_session
+    from app.models import Song
+    from app.cache import normalize_artist, normalize_title
+    with db_session() as db:
+        existing = db.query(Song).filter(Song.youtube_id == yt_id).one_or_none()
+        if existing:
+            existing.artist       = artist or existing.artist
+            existing.title        = title or existing.title
+            existing.artist_norm  = normalize_artist(artist) if artist else existing.artist_norm
+            existing.title_norm   = normalize_title(title) if title else existing.title_norm
+            existing.duration_sec = int(render["meta"]["duration_sec"])
+            existing.bpm          = int(bpm) if bpm else None
+            existing.language     = lang or existing.language
+            existing.render_json  = json.dumps(render, ensure_ascii=False)
+            existing.audio_path   = str(wav)
+            existing.thumbnail_url = thumbnail_url or existing.thumbnail_url
+            existing.music_key    = render["meta"].get("key") or existing.music_key
+            existing.capo         = render["meta"].get("capo", 0)
+            existing.time_sig     = render["meta"].get("time_sig", "4/4")
+            db.commit()
+            log.info(" → updated song id=%d", existing.id)
+            return existing.id
+        else:
+            s = Song(
+                youtube_id=yt_id,
+                artist=artist or "Unknown",
+                title=title or yt_id,
+                artist_norm=normalize_artist(artist),
+                title_norm=normalize_title(title),
+                duration_sec=int(render["meta"]["duration_sec"]),
+                bpm=int(bpm) if bpm else None,
+                music_key=render["meta"].get("key", "C major"),
+                capo=render["meta"].get("capo", 0),
+                time_sig=render["meta"].get("time_sig", "4/4"),
+                language=lang,
+                thumbnail_url=thumbnail_url,
+                status="ready",
+                source="ai",
+                render_json=json.dumps(render, ensure_ascii=False),
+                audio_path=str(wav),
+            )
+            db.add(s); db.commit()
+            log.info(" → saved song id=%d", s.id)
+            return s.id
+
+
 # ============ Main ============
 def _update_job(job_id, **fields) -> None:
     """Update Job row when running under the FastAPI app. No-op if job_id is None
@@ -714,303 +926,183 @@ def _parse_artist_title(info: dict) -> tuple[str, str, str | None]:
 
 
 def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str = None):
-    """Phase 2 orchestration: use smart/* modules for all MIR/NLP processing."""
+    """Phase 2.5 orchestration: all smart/* modules wired through.
+
+    Dependency order:
+      download → (optional demucs) → BTC → rhythm → key → whisper
+      → romanize_line (syllables) → align_lines → anchor → spell_chords
+      → capo → sections → bars → validate → save
+    """
+    from app.smart import romaji as R
+    from app.smart import key as K
+    from app.smart import align as AL
+    from app.smart import anchor as AN
+    from app.smart import sections as SE
+    from app.smart import contract as CT
+
     log.info(f"=== Processing {url} ===")
     out_dir = Path(__file__).resolve().parent.parent / "data" / "audio"
     out_dir.mkdir(parents=True, exist_ok=True)
-    _update_job(job_id, status="downloading", progress=5, message="Nge-tap metadata…")
 
-    # 1. Download
-    log.info("1/8 Download audio")
+    # 1. DOWNLOAD
+    _update_job(job_id, status="downloading", progress=5, message="Nge-tap metadata…")
     wav, info = download_audio(url, out_dir)
     yt_id = wav.stem
     duration = float(sf.info(str(wav)).duration)
     artist, title, thumbnail_url = _parse_artist_title(info)
-    log.info(f"  → {wav.name}, {duration:.0f}s, artist={artist!r}, title={title!r}")
-    _update_job(job_id, status="downloading", progress=15, message="Audio downloaded ✓")
+    log.info("  → %s, %.0fs, artist=%r, title=%r", wav.name, duration, artist, title)
+    _update_job(job_id, status="downloading", progress=12, message="Audio downloaded ✓")
 
-    # 2. BTC
-    log.info("2/8 BTC-ISMIR19 chord detection")
-    _update_job(job_id, status="detecting", progress=25, message="Nge-detect chord…")
+    # 2. VOCALS STEM (optional, cleaner whisper + alignment)
+    vocals = _maybe_separate_vocals(wav, out_dir)
+
+    # 3. BTC CHORDS
+    _update_job(job_id, status="detecting", progress=20, message="Nge-detect chord…")
     btc_lab = btc_detect(wav, out_dir)
     btc = consolidate_btc(parse_btc_lab(btc_lab), min_dur=0.8)
-    log.info(f"  → {len(btc)} consolidated chord segments")
-    _update_job(job_id, status="detecting", progress=45, message=f"Chord detected ✓ ({len(btc)} segs)")
+    log.info("  → %d consolidated chord segments", len(btc))
+    _update_job(job_id, status="detecting", progress=35, message=f"Chord detected ✓ ({len(btc)} segs)")
 
-    # 3. Whisper transcription
-    log.info("3/8 Whisper transcription")
-    _update_job(job_id, status="transcribing", progress=55, message="Nyalin lirik…")
-    lyrics_lines, lang = transcribe_whisper(wav, initial_prompt=reference_lyrics)
-    flat = [w for ln in lyrics_lines for w in ln["words"]]
-    log.info(f"  → {len(lyrics_lines)} segments, {len(flat)} words, lang={lang}")
-    _update_job(job_id, status="transcribing", progress=70, message=f"Lirik transcribed ✓ ({len(flat)} kata)")
+    # 4. RHYTHM — real beats/downbeats/bpm (smart, with fallback)
+    rhythm = _safe_rhythm(wav)
+    beat_grid = rhythm["beats"]
+    log.info("  → bpm=%d beats=%d downbeats=%d sig=%s",
+             rhythm["bpm"], len(rhythm["beats"]), len(rhythm["downbeats"]), rhythm["time_sig"])
 
-    # 4. Reference lyrics (optional) — Phase 2: use smart.anchor.parse_override
-    from app.smart.anchor import parse_override
-    ref_chord_marks: list[list[tuple[int, str]]] | None = None
+    # 5. KEY — real (smart, with fallback)
+    key_info = _safe_key(wav)
+    song_key = key_info["key"]
+    log.info("  → key=%s (conf=%.2f)", song_key, key_info["confidence"])
+
+    # 6. WHISPER — line boundaries + rough timing
+    _update_job(job_id, status="transcribing", progress=45, message="Nyalin lirik…")
+    lyrics_lines, lang = transcribe_whisper(vocals, initial_prompt=reference_lyrics)
+    log.info("  → %d whisper segments, lang=%s", len(lyrics_lines), lang)
+    _update_job(job_id, status="transcribing", progress=55, message=f"Lirik transcribed ✓ ({len(lyrics_lines)} segs)")
+
+    # 7. SOURCE-OF-TRUTH LINES with syllable maps
     if reference_lyrics:
-        log.info("4/8 Using provided reference lyrics (with optional [chord] annotations)")
-        raw_lines = [l.strip() for l in reference_lyrics.split("\n") if l.strip()]
-        parsed_ref: list[tuple[str, list[tuple[int, str]]]] = []
-        pending_chord_line: str | None = None
-        for raw in raw_lines:
-            if _is_chord_only_line(raw):
-                pending_chord_line = raw
-                continue
-            clean, marks = parse_override(raw)
-            if not clean.strip():
-                continue
-            if pending_chord_line is not None:
-                from app.smart.anchor import marks_to_anchors
-                extra = _parse_chord_only_line(pending_chord_line, clean)
-                marks = extra + marks
-                pending_chord_line = None
-            parsed_ref.append((clean, marks))
-            if marks:
-                log.info(f"    line {len(parsed_ref)}: {len(marks)} user chords → {[m[1] for m in marks]}")
-
-        ref_lines = [clean for clean, _ in parsed_ref]
-        ref_romaji_lines = [romaji(clean) for clean, _ in parsed_ref]
-        ref_chord_marks = [marks for _, marks in parsed_ref]
+        log.info("4/8 Using reference lyrics (with optional [chord] overrides)")
+        line_objs, override_marks = _parse_reference(reference_lyrics, R, AN)
+        total_chords = sum(len(m) for m in override_marks)
+        log.info("  → %d reference lines (%d user chords)", len(line_objs), total_chords)
     else:
-        log.info("4/8 Try fetch reference lyrics (skip for now)")
-        ref_lines = None
-        ref_romaji_lines = None
-
-    # 5. MMS_FA forced alignment — Phase 2: use smart.romaji + smart.align
-    log.info("5/8 Forced alignment (CPU, ~60s for 4min song)")
-    _update_job(job_id, status="aligning", progress=80, message="Nge-align kata ↔ audio…")
-    if ref_romaji_lines:
-        use_lyrics = ref_romaji_lines
-    else:
-        use_lyrics = [w["word"] for w in flat]
-    romaji_list: list[str] = []
-    if use_lyrics and isinstance(use_lyrics[0], list):
-        for line in use_lyrics:
-            if isinstance(line, list):
-                romaji_list.extend(r for r in line if isinstance(r, str) and r)
-            elif isinstance(line, str) and line:
-                romaji_list.extend(r for r in romaji(line) if r)
-    elif use_lyrics:
-        for word in use_lyrics:
-            if not isinstance(word, str) or not word.strip():
-                continue
-            try:
-                rs = romaji(word)
-            except Exception as e:
-                log.debug(f"    romaji({word!r}) failed: {e}")
-                continue
-            romaji_list.extend(rs)
-    romaji_list = [r for r in romaji_list if r]
-    log.info(f"  → {len(romaji_list)} romaji tokens prepared for alignment")
-
-    if ref_lines:
-        raw_times = _transfer_whisper_timings(romaji_list, lyrics_lines, duration)
-        aligned = sum(1 for t in raw_times if t is not None)
-        log.info(f"  → {aligned}/{len(romaji_list)} ref tokens matched via SequenceMatcher")
-        token_times = interpolate_missing(raw_times, duration)
-    else:
-        win_ranges = [(max(0, ln["start"]-0.5), min(duration, ln["end"]+0.5))
-                      for ln in lyrics_lines]
-        # Merge overlapping windows
-        merged = []
-        for ws, we in sorted(win_ranges):
-            if merged and ws <= merged[-1][1] + 0.1:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], we))
-            else:
-                merged.append((ws, we))
-        # Cap each window to 25s (MMS_FA optimal range)
-        final_ranges = []
-        for ws, we in merged:
-            while we - ws > 25:
-                final_ranges.append((ws, ws + 25))
-                ws = ws + 25
-            final_ranges.append((ws, we))
-        log.info(f"  {len(final_ranges)} alignment windows (max 25s each)")
-        raw_times = forced_align(wav, romaji_list, window_ranges=final_ranges)
-        aligned = sum(1 for t in raw_times if t is not None)
-        log.info(f"  → aligned {aligned}/{len(romaji_list)} tokens")
-        token_times = interpolate_missing(raw_times, duration)
-
-    # 6. Build lines with real timing + multi-chord
-    log.info("6/8 Build lines with BTC chord anchoring")
-    if ref_lines:
-        # Use ref_lines as source of truth for text
-        ti = 0
-        lines_out = []
-        for li, line_text in enumerate(ref_lines):
-            rws = ref_romaji_lines[li]
-            n = len(rws)
-            tt = token_times[ti:ti+n]
-            if not tt or tt[0] is None: continue
-            line_start = tt[0][0]; line_end = max(tt[-1][1], line_start + 0.3)
-            words_out = [{"word": rws[j], "start": tt[j][0], "end": tt[j][1],
-                          "romaji": rws[j]} for j in range(n) if tt[j] is not None]
-            ti += n
-
-            # chord anchor: Bug 1.1 — use user-provided [chord] marks if present,
-            # otherwise fall back to BTC anchoring (with Bug 0.3 dedup).
-            line_chords = []
-            chord_marks = (ref_chord_marks[li]
-                           if ref_chord_marks and li < len(ref_chord_marks) else [])
-            if chord_marks:
-                # User-annotated chords — distribute across line span based on
-                # character offset. More predictable than relying on
-                # interpolated word timings which may be scattered.
-                line_text_len = max(1, len(line_text))
-                for char_off, chord_str in chord_marks:
-                    frac = char_off / line_text_len
-                    bi = int(round(frac * max(0, len(words_out) - 1)))
-                    bi = min(bi, len(words_out) - 1)
-                    chord_start = line_start + frac * (line_end - line_start)
-                    line_chords.append({
-                        "chord": chord_str,
-                        "start": float(chord_start),
-                        "anchor_word_index": bi,
-                    })
-            else:
-                # BTC fallback
-                for cs, ce, cc in btc:
-                    if line_start <= cs < line_end:
-                        sc = simplify_chord(cc)
-                        if sc == "N": continue
-                        bi, bd = 0, 1e9
-                        for k, w in enumerate(words_out):
-                            d = abs((w["start"]+w["end"])/2 - cs)
-                            if d < bd: bd, bi = d, k
-                        line_chords.append({"chord": sc, "start": float(cs), "anchor_word_index": bi})
-                line_chords = _dedupe_line_chords(line_chords)
-
-            lines_out.append({"line_index": len(lines_out), "start": line_start, "end": line_end,
-                              "text": line_text, "words": words_out, "chords": line_chords})
-    else:
-        # Use whisper lines
-        ti = 0
-        lines_out = []
+        line_objs, override_marks = [], []
         for ln in lyrics_lines:
-            n = len(ln["words"])
-            tt = token_times[ti:ti+n]
-            ti += n
-            if not tt or tt[0] is None: continue
-            line_start = tt[0][0]; line_end = max(tt[-1][1], line_start + 0.3)
-            words_out = [{"word": ln["words"][j]["word"], "start": tt[j][0], "end": tt[j][1],
-                          "romaji": romaji(ln["words"][j]["word"])[0] if romaji(ln["words"][j]["word"]) else ""}
-                         for j in range(n) if tt[j] is not None]
-            line_chords = []
-            for cs, ce, cc in btc:
-                if line_start <= cs < line_end:
-                    sc = simplify_chord(cc)
-                    if sc == "N": continue
-                    bi, bd = 0, 1e9
-                    for k, w in enumerate(words_out):
-                        d = abs((w["start"]+w["end"])/2 - cs)
-                        if d < bd: bd, bi = d, k
-                    line_chords.append({"chord": sc, "start": float(cs), "anchor_word_index": bi})
-            line_chords = _dedupe_line_chords(line_chords)
-            lines_out.append({"line_index": len(lines_out), "start": line_start, "end": line_end,
-                              "text": ln["text"], "words": words_out, "chords": line_chords})
+            try:
+                line_objs.append(R.romanize_line(ln["text"]))
+            except Exception as e:
+                log.warning("  romanize_line failed for %r: %s", ln["text"][:30], e)
+                # Build a minimal fallback
+                from app.smart.romaji import LineRomaji, Word, Syllable
+                line_objs.append(LineRomaji(text=ln["text"], display=ln["text"], words=[]))
+            override_marks.append([])
 
-    first_vocal = lines_out[0]["start"] if lines_out else 0.0
-    last_vocal = lines_out[-1]["end"] if lines_out else duration
+    # 8. LINE WINDOWS (rough timing for the aligner)
+    line_windows = _line_windows(lyrics_lines, line_objs, duration)
 
-    # 7. Sections + bars
-    log.info("7/8 Detect sections + build bar grid")
-    sections = detect_sections(lines_out, btc, duration)
-    bars = []
-    for cs, ce, cc in btc:
-        sc = simplify_chord(cc)
-        if sc == "N": continue
-        if cs < first_vocal - 0.3 or cs >= last_vocal + 0.3: continue
-        if ce - cs < 0.3: continue
-        if bars and root_of(bars[-1]["chords"][0]["chord"]) == root_of(sc):
-            bars[-1]["end"] = float(ce); bars[-1]["chords"][0]["end"] = float(ce)
+    # 9. REAL PER-LINE FORCED ALIGNMENT (syllable timings)
+    _update_job(job_id, status="aligning", progress=70, message="Nge-align suku kata…")
+    aligned = _safe_align(AL, vocals, line_objs, line_windows, lyrics_lines, duration)
+    ok_count = sum(1 for a in aligned if a.get("words"))
+    log.info("  → %d/%d lines aligned successfully", ok_count, len(line_objs))
+
+    # 10. BUILD LINES: anchor chords (smart) → spell to key → attach syllables
+    from app.smart.anchor import snap_to_grid
+    lines_out, all_chords = [], []
+    for i, al in enumerate(aligned):
+        marks = override_marks[i] if i < len(override_marks) else []
+        if marks:
+            # Override path: use user-provided [chord] marks
+            chord_marks = AN.marks_to_anchors(marks, al.get("text", ""), al.get("words", []), beat_grid)
         else:
-            bars.append({"index": len(bars), "start": float(cs), "end": float(ce),
-                         "chords": [{"chord": sc, "start": float(cs), "end": float(ce)}]})
+            # Auto path: BTC chords anchored to syllables
+            chord_marks = AN.anchor_chords_auto(al, btc, beat_grid)
+        # spell every chord for the detected key (sharps vs flats)
+        names = [c["chord"] for c in chord_marks]
+        try:
+            spelled = K.spell_chords(names, song_key)
+            for c, sp in zip(chord_marks, spelled):
+                c["chord"] = sp
+        except Exception as e:
+            log.warning("  spell_chords failed for line %d: %s", i, e)
+        all_chords.extend(c["chord"] for c in chord_marks)
 
-    # Beats from BTC midpoints
-    beats_set = set()
-    for cs, ce, _ in btc:
-        beats_set.add(round(cs * 4) / 4); beats_set.add(round(ce * 4) / 4)
-    beats = sorted(b for b in beats_set if 0 < b < duration)
-    downbeats = beats[::4] if beats else []
+        words_out = [{
+            "word": w.get("romaji", ""), "surface": w.get("surface", ""),
+            "romaji": w.get("romaji", ""), "start": w.get("start", 0.0), "end": w.get("end", 0.0),
+            "syllables": [{"romaji": s.get("romaji", ""), "start": s.get("start"), "end": s.get("end")}
+                          for s in w.get("syllables", [])],
+        } for w in al.get("words", [])]
 
-    # 8. Save
-    log.info("8/8 Save to DB")
-    _update_job(job_id, status="saving", progress=95, message="Nge-save ke DB…")
-    bpm = _estimate_bpm(wav)
-    # BPM is always an integer in display — never trust raw float from librosa.
-    if bpm is not None:
-        bpm = int(round(bpm))
-    # Build render_json with the SAME meta as the Song row, so /api/songs/{id}
-    # response stays self-consistent.
+        lines_out.append({
+            "line_index": i, "start": al.get("start", 0.0), "end": al.get("end", 0.0),
+            "text": al.get("text", ""), "display": al.get("display", ""),
+            "confidence": al.get("confidence", "high"),
+            "words": words_out, "chords": chord_marks,
+        })
+
+    # 11. CAPO from the actual chord set
+    try:
+        capo_info = K.suggest_capo(sorted(set(all_chords)), song_key)
+        log.info("  → capo=%d shapes=%s", capo_info["capo"], capo_info["shape_chords"])
+    except Exception as e:
+        log.warning("  suggest_capo failed: %s", e)
+        capo_info = {"capo": 0, "shape_chords": []}
+
+    # 12. SECTIONS — structure-aware (smart)
+    sections = SE.detect_sections(lines_out, btc, duration)
+    log.info("  → %d sections", len(sections))
+
+    # 13. BARS — BTC onsets snapped to the real beat grid
+    bars = _build_bars(btc, beat_grid, lines_out, duration)
+    downbeats = rhythm["downbeats"]
+
+    # 14. ASSEMBLE render_json
     render = {
         "meta": {
-            "youtube_id":   yt_id,
-            "artist":       artist or "Unknown",
-            "title":        title or yt_id,
+            "youtube_id": yt_id,
+            "artist": artist or "Unknown",
+            "title": title or yt_id,
             "duration_sec": int(duration),
-            "bpm":          bpm,
-            "key":          "C major",
-            "capo":         0,
-            "time_sig":     "4/4",
-            "language":     lang,
+            "bpm": rhythm["bpm"],
+            "key": song_key,
+            "capo": capo_info["capo"],
+            "time_sig": rhythm["time_sig"],
+            "beats_per_bar": rhythm["beats_per_bar"],
+            "language": lang,
+            "key_confidence": round(key_info["confidence"], 3),
+            "rhythm_confidence": round(rhythm["confidence"], 3),
+            "shape_chords": capo_info["shape_chords"],
+            "thumbnail": thumbnail_url,
         },
-        "beats":     beats,
+        "beats": rhythm["beats"],
         "downbeats": downbeats,
-        "sections":  sections,
-        "bars":      bars,
-        "lines":     lines_out,
+        "sections": sections,
+        "bars": bars,
+        "lines": lines_out,
     }
+
+    # 15. VALIDATE before save (wrap since validate_render raises, not returns)
+    try:
+        CT.validate_render(render)
+        render["meta"]["valid"] = True
+        log.info("  → validate_render: OK")
+    except ValueError as e:
+        render["meta"]["valid"] = False
+        log.warning("  validate_render FAILED: %s", e)
+
+    # 16. SAVE
+    _update_job(job_id, status="saving", progress=95, message="Nge-save ke DB…")
+    song_id = None
     if save:
-        # Imports live inside the function so the module is importable without
-        # the FastAPI app context (e.g. for unit tests / CLI runs).
-        from app.db import db_session
-        from app.models import Song
-        from app.cache import normalize_artist, normalize_title
-        with db_session() as db:
-            existing = db.query(Song).filter(Song.youtube_id == yt_id).one_or_none()
-            if existing:
-                existing.artist       = artist or existing.artist
-                existing.title        = title or existing.title
-                existing.artist_norm  = normalize_artist(artist) if artist else existing.artist_norm
-                existing.title_norm   = normalize_title(title) if title else existing.title_norm
-                existing.duration_sec = int(duration)
-                existing.bpm          = bpm
-                existing.language     = lang or existing.language
-                existing.render_json  = json.dumps(render, ensure_ascii=False)
-                existing.audio_path   = str(wav)
-                db.commit()
-                song_id = existing.id
-                log.info(f"  → updated song id={song_id}")
-            else:
-                s = Song(
-                    youtube_id=yt_id,
-                    artist=artist or "Unknown",
-                    title=title or yt_id,
-                    artist_norm=normalize_artist(artist),
-                    title_norm=normalize_title(title),
-                    duration_sec=int(duration),
-                    bpm=bpm,
-                    music_key="C major",
-                    capo=0,
-                    time_sig="4/4",
-                    language=lang,
-                    thumbnail_url=thumbnail_url,
-                    status="ready",
-                    source="ai",
-                    render_json=json.dumps(render, ensure_ascii=False),
-                    audio_path=str(wav),
-                )
-                db.add(s); db.commit()
-                song_id = s.id
-                log.info(f"  → saved song id={song_id}")
+        song_id = _persist_song(render, yt_id, artist, title, rhythm["bpm"], lang, wav, thumbnail_url)
         _update_job(job_id, status="done", progress=100, message="Disimpen ✓",
                     song_id=song_id)
-    else:
-        song_id = None
-    log.info(f"=== DONE: {len(sections)} sections, {len(lines_out)} lines, {len(bars)} bars ===")
+
+    log.info("=== DONE: %d sections, %d lines, %d bars ===", len(sections), len(lines_out), len(bars))
     return render
+
 
 
 if __name__ == "__main__":

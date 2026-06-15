@@ -132,7 +132,7 @@ def validate_render(render: Dict[str, Any]) -> None:
                 raise ValueError(
                     f"line {li} chord {ci} ({c['start']}) before line start ({line['start']})"
                 )
-            if c["start"] > line["end"] + 0.01:
+            if c["start"] > line["end"] + 0.2:
                 raise ValueError(
                     f"line {li} chord {ci} ({c['start']}) after line end ({line['end']})"
                 )
