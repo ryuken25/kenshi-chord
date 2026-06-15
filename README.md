@@ -296,6 +296,34 @@ Logo, design system, dan kode: © KenshiChord 2026.
 
 ---
 
+## 🎵 Reference Lyrics & Chord Override (FASE 2)
+
+The pipeline accepts reference lyrics to **skip Whisper transcription** and **improve alignment accuracy**. You can also **override BTC-detected chords** with your own:
+
+```bash
+python smartfix_auto.py "https://www.youtube.com/watch?v=mG7lrRdm71A" samples/rain_lyrics.txt
+```
+
+**Chord Override Syntax** (`samples/rain_lyrics.txt`):
+```text
+[Am]肩を濡らす[G]す[Fmaj7]雨粒で
+[C]君と出逢った[D]あの日も
+```
+
+- `[Chord]` in brackets attaches to the following word/syllable
+- Overrides BTC's detected chords for that line only
+- Lines without overrides fall back to BTC
+
+**Shorthand format** (chord-only line above lyric):
+```text
+Am G Fmaj7
+肩を濡らすす雨粒で
+```
+
+See `CLAUDE.md` → "Reference Lyrics & Chord Override" for full documentation.
+
+---
+
 ## ⚔️ 一言
 
 > *"剣士のように、コードを見つける。一音一音に、心を込めて。"*

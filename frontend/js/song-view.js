@@ -105,7 +105,20 @@
 
   /* ====================== INIT ====================== */
   async function init() {
-    const idParam = window.KC.getQuery("id") || window.KC.getQuery("y") || DEFAULT_SONG_ID;
+    // Resolve the song id/y param. When absent AND the API is reachable,
+    // redirect to the most recent real song so the bare "Song" navbar link
+    // never shows the Soran Bushi mock fallback (Bug 0.2).
+    let idParam = window.KC.getQuery("id") || window.KC.getQuery("y");
+    if (!idParam) {
+      const resolved = await resolveNoParam();
+      if (resolved) {
+        // resolveNoParam already called location.replace — abort this init.
+        return;
+      }
+      // API down + no mock: show empty state. Otherwise fall through to
+      // getMockSong(DEFAULT_SONG_ID) so dev-without-backend still works.
+      idParam = DEFAULT_SONG_ID;
+    }
     const song = await loadSong(idParam);
     state.song = song;
     state.transposed = song;
@@ -117,6 +130,36 @@
     applyRomajiMode();
     applyChordVisibility();
     applyFontScale();
+  }
+
+  /**
+   * When song.html is loaded with no `id`/`y` query param, decide what to do:
+   *   - API up + ≥1 song   → redirect to song.html?id={most_recent_id}
+   *   - API up + 0 songs   → return false (caller shows empty state)
+   *   - API down           → return false (caller falls back to mock)
+   * Returns true iff a redirect was issued.
+   */
+  async function resolveNoParam() {
+    if (!window.KC.api) return false;
+    let available = false;
+    try {
+      available = await window.KC.api.isAvailable();
+    } catch (e) {
+      return false;
+    }
+    if (!available) return false;
+    try {
+      const items = await window.KC.api.listSongs();
+      if (items && items.length > 0) {
+        // Sort by created_at desc just in case the API didn't.
+        items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        window.location.replace("song.html?id=" + items[0].id);
+        return true;
+      }
+    } catch (e) {
+      console.warn("listSongs failed in resolveNoParam:", e);
+    }
+    return false;
   }
 
   /**

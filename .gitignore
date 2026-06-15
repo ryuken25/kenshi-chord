@@ -21,6 +21,11 @@ desktop.ini
 *.pem
 *.key
 
+# ---- Claude Code local config ----
+# settings.json holds per-user auth tokens (API key) and settings.local.json
+# holds local overrides. Neither should ever leave this machine.
+.claude/
+
 # ---- Python ----
 __pycache__/
 *.py[cod]

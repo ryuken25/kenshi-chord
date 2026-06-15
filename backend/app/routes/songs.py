@@ -68,11 +68,17 @@ def get_song(song_id: int, db: Session = Depends(get_db)) -> SongDetail:
 
     # Backfill from row columns so render_json and the Song row never disagree
     # (Bug 0.2 makes them agree at write time, but old rows may still mismatch).
+    # NOTE: setdefault only fills a *missing* key, not a present-but-empty
+    # value. Old rows have render_json.meta.title == "" (empty string, key
+    # present) so setdefault leaves the field empty and the frontend renders a
+    # blank title. Use falsy-fill instead. (Bug 0.1)
     render.setdefault("meta", {})
     meta = render["meta"]
     meta.setdefault("youtube_id", song.youtube_id)
-    meta.setdefault("artist", song.artist or "Unknown")
-    meta.setdefault("title", song.title or song.youtube_id)
+    if not meta.get("title"):
+        meta["title"] = song.title or song.youtube_id
+    if not meta.get("artist"):
+        meta["artist"] = song.artist or "Unknown"
     if song.duration_sec is not None:
         meta["duration_sec"] = int(song.duration_sec)
     else:
@@ -82,10 +88,12 @@ def get_song(song_id: int, db: Session = Depends(get_db)) -> SongDetail:
         meta["bpm"] = int(round(float(song.bpm)))
     else:
         meta.setdefault("bpm", None)
-    meta.setdefault("key", song.music_key or "C major")
+    if not meta.get("key"):
+        meta["key"] = song.music_key or "C major"
     meta.setdefault("capo", song.capo)
     meta.setdefault("time_sig", song.time_sig or "4/4")
-    meta.setdefault("language", song.language)
+    if not meta.get("language"):
+        meta["language"] = song.language
 
     # Belt-and-braces: if duration_sec is still a float somewhere in the JSON,
     # coerce it to int. Prevents Pydantic from 500-ing on a recoverable row.

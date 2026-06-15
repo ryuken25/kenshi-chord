@@ -56,6 +56,87 @@ curl http://127.0.0.1:8000/api/songs/<song_id>
 
 There is **no enforced lint or test suite** in this repo right now. When editing Python, follow the existing style (type hints on public functions, dataclasses, f-strings, `from __future__ import annotations`). When editing JS, follow the existing IIFE-module pattern in `frontend/js/*.js` (each file is `(function () { "use strict"; ... window.KC = ... })();`).
 
+## Reference Lyrics & Chord Override
+
+The FASE 2 pipeline (`backend/smartfix_auto.py`) accepts optional **reference lyrics** to improve transcription accuracy and enable chord overrides.
+
+### Basic Usage
+
+```bash
+cd backend
+python smartfix_auto.py "https://www.youtube.com/watch?v=mG7lrRdm71A" samples/rain_lyrics.txt
+```
+
+Reference lyrics are a plain text file with one line per lyric line. The pipeline:
+1. Skips Whisper transcription when reference lyrics are provided
+2. Romanizes Japanese text (romaji) for syllable-level timing
+3. Aligns each line to the audio via torchaudio MMS_FA (forced alignment)
+
+### Chord Override Syntax
+
+**Override BTC-detected chords** by embedding chord symbols in brackets `[...]` directly in the lyric line:
+
+```text
+[Am]肩を濡らす[G]す[Fmaj7]雨粒で
+```
+
+This tells the pipeline:
+- `Am` starts at "肩を濡らす" (kata o nurasu)
+- `G` starts at "す" (su, the final syllable of 濡らす)
+- `Fmaj7` starts at "雨粒で" (amatsubu de)
+
+**Format rules:**
+- Chords appear in `[brackets]` before the word/syllable they attach to
+- Valid chord syntax: root + quality (e.g., `C`, `Am`, `Fmaj7`, `G7`, `Dm7`)
+- Slash chords supported: `C/E` (C major with E bass)
+- Chords are preserved exactly as written (BTC output is replaced)
+- Lines without `[chord]` markers fall back to BTC-detected chords
+
+**Shorthand chord-only format** (one chord per line, applies to next lyric line):
+
+```text
+Am G Fmaj7
+肩を濡らすす雨粒で
+```
+
+This distributes `Am`, `G`, `Fmaj7` evenly across the lyric line below it. Useful for bulk annotation.
+
+### When to Use Reference Lyrics
+
+- **Genre-specific chord corrections**: BTC (ISMIR19 baseline) struggles with complex jazz/anime progressions. Use reference lyrics when you know the correct chords.
+- **Lyric accuracy**: Whisper sometimes misreads Japanese (e.g., "雨粒" → "飴玉"). Reference lyrics guarantee correct text.
+- **Timing control**: Forced alignment to reference lyrics is more accurate than Whisper's timestamps for non-native speakers.
+
+### Example: `samples/rain_lyrics.txt`
+
+The sample file demonstrates chord overrides for "RAIN" by F/ACE (church of keito):
+
+```text
+[Am]肩を濡らす[G]す[Fmaj7]雨粒で
+[C]君と出逢った[D]あの日も
+...
+```
+
+Run it:
+```bash
+python smartfix_auto.py "https://www.youtube.com/watch?v=mG7lrRdm71A" samples/rain_lyrics.txt
+```
+
+The generated `render_json` will use `Am → G → Fmaj7` on the first line instead of BTC's detected `A:min7 → E:min`.
+
+### Implementation Details (for developers)
+
+Chord parsing happens in `smartfix_auto.py`:
+- `_parse_chord_line(text)`: extracts `(clean_lyric, [(chord, word_index)])` from a single line
+- `_is_chord_only_line(text)`: detects shorthand format (whitespace-separated chords, no lyric)
+- `_parse_chord_only_line(text)`: splits shorthand into `[(chord, 0), (chord, 1), ...]` for even distribution
+- `_dedupe_line_chords(chords)`: collapses consecutive identical chords (max 8 per line)
+
+**Known limitations:**
+- Chord overrides only apply when reference lyrics are provided (not Whisper-only mode)
+- BTC detection still runs (for fallback on non-override lines), but overridden lines skip BTC
+- Chord quality must be valid (parseable by `smartfix_auto.parse_chord`) — invalid chords are logged and skipped
+
 ## Architecture
 
 ### Two-tier rendering contract

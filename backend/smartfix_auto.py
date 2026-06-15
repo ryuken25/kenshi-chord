@@ -67,6 +67,113 @@ def romaji(text):
         if r: out.append(r)
     return out
 
+
+# ============ Bug 1.1: ChordPro-style [CHORD] parsing ============
+# Parses inline bracket chords like "[Am]肩を濡らす[G]す[Fmaj7]雨粒で"
+# Returns (clean_text, chord_marks) where chord_marks = [(char_offset, chord_str), ...]
+
+_CHORD_RE = re.compile(r"\[([A-G][#b]?(?:maj|min|m|dim|aug|sus|add|maj7|min7|m7|7|maj9|m9|9|6|m6|11|13|flat5|#5|#9|b5|b9|m7b5|mM7|MM7|add9|add11|add13)*(?:/[A-G][#b]?)?)\]")
+
+def _parse_chord_line(line: str) -> tuple[str, list[tuple[int, str]]]:
+    """Parse [CHORD] inline annotations. Returns (clean_text, chord_marks).
+
+    chord_marks is a list of (char_offset_in_clean_text, chord_string).
+
+    Example:
+        "[Am]肩を濡らす[G]す[Fmaj7]雨粒で"
+        → ("肩を濡らすす雨粒で", [(0, "Am"), (6, "G"), (7, "Fmaj7")])
+    """
+    chord_marks = []
+    clean = ""
+    last_end = 0
+    for m in _CHORD_RE.finditer(line):
+        # Text between last match and this match goes to clean
+        between = line[last_end:m.start()]
+        clean += between
+        # The chord's char offset is the current length of clean (before this chord's text)
+        chord_marks.append((len(clean), m.group(1)))
+        last_end = m.end()
+    # Remaining text after last match
+    clean += line[last_end:]
+    return clean, chord_marks
+
+
+def _is_chord_only_line(line: str) -> bool:
+    """Detect a line that is only chord tokens (shorthand form).
+
+    Matches lines like:
+        "Am G Fmaj7"
+        "Am"
+        "C#m7 D/F#"
+    """
+    stripped = line.strip()
+    if not stripped:
+        return False
+    # Each token must be a chord: root [quality] [/bass]
+    tokens = stripped.split()
+    chord_pat = re.compile(
+        r"^[A-G][#b]?"
+        r"(?:maj|min|m|dim|aug|sus|add|maj7|min7|m7|7|maj9|m9|9|6|m6|11|13|"
+        r"flat5|#5|#9|b5|b9|m7b5|mM7|MM7|add9|add11|add13)*"
+        r"(?:/[A-G][#b]?)?$"
+    )
+    return all(chord_pat.match(t) for t in tokens)
+
+
+def _parse_chord_only_line(line: str, target_text: str) -> list[tuple[int, str]]:
+    """Parse a chord-only shorthand line, distributing chords left-to-right
+    across the words of the following lyric line.
+
+    Example:
+        line = "Am G Fmaj7"
+        target_text = "肩を濡らすす雨粒で"
+        → [(0, "Am"), (offset_to_す, "G"), (offset_to_雨, "Fmaj7")]
+    """
+    tokens = line.strip().split()
+    if not tokens:
+        return []
+    # Distribute chords evenly across the target text's character offsets
+    n_chords = len(tokens)
+    n_chars = len(target_text)
+    if n_chars == 0:
+        return [(0, t) for t in tokens]
+    step = n_chars / n_chords
+    marks = []
+    for i, chord in enumerate(tokens):
+        offset = int(round(i * step))
+        offset = min(offset, n_chars - 1)
+        marks.append((offset, chord))
+    return marks
+
+
+# ============ Bug 0.3: Chord de-dup for line.chords ============
+def _dedupe_line_chords(chords: list[dict], max_per_line: int = 8) -> list[dict]:
+    """Collapse consecutive duplicate chords and cap count.
+
+    1. Sort by start.
+    2. Drop a chord if its simplified name equals the previous kept chord.
+    3. Drop a chord whose onset is within 0.4s of the previous kept chord.
+    4. Cap to max_per_line.
+    """
+    if not chords:
+        return chords
+    chords = sorted(chords, key=lambda c: c["start"])
+    kept = []
+    for ch in chords:
+        if kept:
+            prev = kept[-1]
+            # Consecutive identical chord → drop
+            if simplify_chord(ch["chord"]) == simplify_chord(prev["chord"]):
+                continue
+            # Micro-change within 0.4s → drop
+            if abs(ch["start"] - prev["start"]) < 0.4:
+                continue
+        kept.append(ch)
+        if len(kept) >= max_per_line:
+            break
+    return kept
+
+
 def normalize_artist_title(artist: str, title: str) -> str:
     """For fuzzy match against fetched reference lyrics."""
     def clean(s):
@@ -361,6 +468,62 @@ def interpolate_missing(times, total):
     return out
 
 
+# ============ Bug 1.2: Transfer whisper timings onto ref tokens ============
+def _transfer_whisper_timings(ref_romaji_list: list[str],
+                             lyrics_lines: list[dict],
+                             duration: float) -> list:
+    """Map ref tokens timings from whisper words via difflib.SequenceMatcher.
+
+    1. Flatten whisper words → per-token romaji list with (start, end) each.
+    2. Run SequenceMatcher on ref_romaji_list vs whisper_romaji_list.
+    3. For each matched ref token, copy the corresponding whisper timing.
+    4. For unmatched ref tokens, leave None (interpolate_missing handles them).
+    """
+    import difflib
+    # 1. Build whisper_romaji_tokens with timings
+    whisper_roms = []
+    whisper_times = []
+    for ln in lyrics_lines:
+        for w in ln["words"]:
+            word_text = w["word"]
+            word_start = w["start"]
+            word_end = w["end"]
+            try:
+                word_roms = romaji(word_text)
+            except Exception:
+                word_roms = []
+            if not word_roms:
+                continue
+            n = len(word_roms)
+            # Distribute word timing equally across its romaji tokens
+            if n == 1:
+                segs = [(word_start, word_end)]
+            else:
+                seg_dur = (word_end - word_start) / n
+                segs = [(word_start + i*seg_dur, word_start + (i+1)*seg_dur) for i in range(n)]
+            whisper_roms.extend(word_roms)
+            whisper_times.extend(segs)
+
+    if not whisper_roms:
+        return [None] * len(ref_romaji_list)
+
+    # 2. Sequence match (case-insensitive on romaji)
+    ref_lower = [r.lower() for r in ref_romaji_list]
+    whi_lower = [r.lower() for r in whisper_roms]
+    sm = difflib.SequenceMatcher(a=ref_lower, b=whi_lower, autojunk=True)
+
+    # 3. Walk the opcodes and assign matched timings
+    out_times = [None] * len(ref_romaji_list)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            # ref[i1:i2] == whisper[j1:j2] — copy 1:1
+            n = min(i2 - i1, j2 - j1)
+            for k in range(n):
+                out_times[i1 + k] = whisper_times[j1 + k]
+
+    return out_times
+
+
 # ============ Step 6: BTC consolidation + simplification ============
 def simplify_chord(c):
     if c == "N": return "N"
@@ -408,17 +571,37 @@ def _estimate_bpm(wav_path):
         bpm, _ = librosa.beat.beat_track(y=y, sr=sr)
         if bpm is None:
             return None
-        return int(round(float(bpm)))
+        # librosa >=0.10 returns bpm as an ndarray; extract scalar before round.
+        bpm_val = float(bpm[0]) if getattr(bpm, "ndim", 0) > 0 else float(bpm)
+        return int(round(bpm_val))
     except Exception as e:
         log.info(f"  BPM estimation skipped: {e}")
         return None
 
 
 def detect_sections(words_lines, btc, duration, gap_threshold=2.5):
-    """Auto-detect intro, verse, chorus, outro from vocal gaps + position."""
-    if not words_lines: return [{"name": "Intro", "start": 0.0, "end": duration, "has_lyrics": False}]
+    """Auto-detect intro, verse, chorus, interlude, outro from BTC + vocal gaps.
+
+    Bug 0.4 fixes:
+      - Uses BTC chord activity in instrumental regions (Intro/Outro/Interlude not just vocal gaps)
+      - Instrumental vs Interlude: gap >4 s with BTC chords → "Instrumental"
+      - NEVER returns a single giant Verse when there are ≥6 lines: splits on the
+        largest vocal gap so the section list has real structure.
+    """
+    if not words_lines:
+        return [{"name": "Intro", "start": 0.0, "end": duration, "has_lyrics": False}]
+
     first_vocal = words_lines[0]["start"]
-    last_vocal = words_lines[-1]["end"]
+    last_vocal  = words_lines[-1]["end"]
+
+    def btc_covers(span_s, span_e):
+        """True iff there's at least one BTC non-"N" chord overlapping this region."""
+        for cs, ce, cc in btc:
+            if simplify_chord(cc) == "N": continue
+            if cs < span_e and ce > span_s:
+                return True
+        return False
+
     # Find vocal gaps
     gaps = []
     for i in range(len(words_lines) - 1):
@@ -426,26 +609,53 @@ def detect_sections(words_lines, btc, duration, gap_threshold=2.5):
         gs = words_lines[i+1]["start"]
         if gs - ge > gap_threshold:
             gaps.append((ge, gs))
+
+    # Bug 0.4: if there are ≥6 lines and NO gap was detected, force-split on the
+    # single largest gap between lines so we never get one giant Verse.
+    if not gaps and len(words_lines) >= 6:
+        best_gap_s, best_gap_e = None, None
+        best_size = 0.0
+        for i in range(len(words_lines) - 1):
+            ge = words_lines[i]["end"]
+            gs = words_lines[i+1]["start"]
+            size = gs - ge
+            if size > best_size:
+                best_gap_s, best_gap_e, best_size = ge, gs, size
+        if best_gap_s is not None and best_size > 0.05:
+            gaps = [(best_gap_s, best_gap_e)]
+
     sections = []
+
+    # Intro: [0, first_vocal] if >3 s AND BTC has non-N chords in there
     if first_vocal > 3.0:
-        sections.append({"name": "Intro", "start": 0.0, "end": float(first_vocal), "has_lyrics": False})
-    # naive: split by gaps into segments
+        has_chord = btc_covers(0.0, first_vocal)
+        name = "Intro" if has_chord else "Intro"
+        sections.append({"name": name, "start": 0.0, "end": float(first_vocal), "has_lyrics": False})
+
+    # Vocal segments between gaps
     if not gaps:
+        # Pure single-verse case (only reachable for short songs < 6 lines).
         sections.append({"name": "Verse", "start": float(first_vocal), "end": float(last_vocal), "has_lyrics": True})
     else:
         prev_e = first_vocal
         for idx, (ge, gs) in enumerate(gaps):
-            if ge > prev_e:
+            if ge > prev_e + 0.2:
                 # Alternating V/C pattern starting from Verse 1.
-                #   idx=0 → Verse 1, idx=1 → Chorus 1, idx=2 → Verse 2, idx=3 → Chorus 2, …
                 if idx % 2 == 0:
                     name = f"Verse {(idx // 2) + 1}"
                 else:
                     name = f"Chorus {(idx // 2) + 1}"
                 sections.append({"name": name, "start": float(prev_e), "end": float(ge), "has_lyrics": True})
-            sections.append({"name": "Interlude", "start": float(ge), "end": float(gs), "has_lyrics": False})
+
+            # Gap region: label Instrumental if BTC has chord activity (else Interlude)
+            if btc_covers(ge, gs):
+                gap_name = "Instrumental"
+            else:
+                gap_name = "Interlude"
+            sections.append({"name": gap_name, "start": float(ge), "end": float(gs), "has_lyrics": False})
             prev_e = gs
-        if prev_e < last_vocal:
+
+        if prev_e < last_vocal - 0.2:
             # Trailing segment: pattern length is len(gaps)+1, so it's a Verse when
             # len(gaps) is even, Chorus when len(gaps) is odd.
             if len(gaps) % 2 == 0:
@@ -453,8 +663,11 @@ def detect_sections(words_lines, btc, duration, gap_threshold=2.5):
             else:
                 name = f"Chorus {(len(gaps) // 2) + 1}"
             sections.append({"name": name, "start": float(prev_e), "end": float(last_vocal), "has_lyrics": True})
+
+    # Outro: [last_vocal, duration] if >3 s
     if duration - last_vocal > 3.0:
         sections.append({"name": "Outro", "start": float(last_vocal), "end": float(duration), "has_lyrics": False})
+
     return sections
 
 
@@ -532,11 +745,37 @@ def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str 
     _update_job(job_id, status="transcribing", progress=70, message=f"Lirik transcribed ✓ ({len(flat)} kata)")
 
     # 4. Reference lyrics (optional)
+    # Bug 1.1: Support ChordPro-style [CHORD] inline annotations.
+    #   "[Am]肩を濡らす[G]す[Fmaj7]雨粒で" → clean_text="肩を濡らすす雨粒で",
+    #   chord_marks=[(0,"Am"),(6,"G"),(7,"Fmaj7")].
+    # Also support a chord-only shorthand line that distributes chords to the
+    # following lyric line (one chord per word, left-to-right).
+    ref_chord_marks: list[list[tuple[int, str]]] | None = None
     if reference_lyrics:
-        log.info("4/8 Using provided reference lyrics")
-        # tokenize into lines using newline + romanize
-        ref_lines = [l.strip() for l in reference_lyrics.split("\n") if l.strip()]
-        ref_romaji_lines = [romaji(l) for l in ref_lines]
+        log.info("4/8 Using provided reference lyrics (with optional [chord] annotations)")
+        raw_lines = [l.strip() for l in reference_lyrics.split("\n") if l.strip()]
+        parsed_ref: list[tuple[str, list[tuple[int, str]]]] = []
+        pending_chord_line: str | None = None
+        for raw in raw_lines:
+            if _is_chord_only_line(raw):
+                # Chord-only shorthand — attach to next lyric line
+                pending_chord_line = raw
+                continue
+            clean, marks = _parse_chord_line(raw)
+            if not clean.strip():
+                continue
+            # If a chord-only line was pending, prepend its chords
+            if pending_chord_line is not None:
+                extra = _parse_chord_only_line(pending_chord_line, clean)
+                marks = extra + marks
+                pending_chord_line = None
+            parsed_ref.append((clean, marks))
+            if marks:
+                log.info(f"    line {len(parsed_ref)}: {len(marks)} user chords → {[m[1] for m in marks]}")
+
+        ref_lines = [clean for clean, _ in parsed_ref]
+        ref_romaji_lines = [romaji(clean) for clean, _ in parsed_ref]
+        ref_chord_marks = [marks for _, marks in parsed_ref]
     else:
         # Try fetch from URL
         log.info("4/8 Try fetch reference lyrics (skip for now)")
@@ -575,38 +814,38 @@ def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str 
     # Filter out any leftover empty strings just in case
     romaji_list = [r for r in romaji_list if r]
     log.info(f"  → {len(romaji_list)} romaji tokens prepared for alignment")
-    # Group tokens by whisper segments → window_ranges
+
     if ref_lines:
-        # map ref tokens to whisper segments proportionally
-        n_total = len(romaji_list)
-        n_win = max(1, len(lyrics_lines))
-        win_ranges = []
-        for i, ln in enumerate(lyrics_lines):
-            ws = ln["start"]; we = ln["end"]
-            # extend windows sedikit to avoid cut
-            win_ranges.append((max(0, ws-0.5), min(duration, we+0.5)))
+        # Bug 1.2: transfer whisper per-word timings onto ref tokens via sequence
+        # alignment (difflib). This avoids re-running MMS_FA on ref tokens, which
+        # was producing bad timings due to the proportional-window-distribution bug.
+        raw_times = _transfer_whisper_timings(romaji_list, lyrics_lines, duration)
+        aligned = sum(1 for t in raw_times if t is not None)
+        log.info(f"  → {aligned}/{len(romaji_list)} ref tokens matched via SequenceMatcher")
+        token_times = interpolate_missing(raw_times, duration)
     else:
+        # Whisper path: existing MMS_FA pipeline
         win_ranges = [(max(0, ln["start"]-0.5), min(duration, ln["end"]+0.5))
                       for ln in lyrics_lines]
-    # Merge overlapping windows
-    merged = []
-    for ws, we in sorted(win_ranges):
-        if merged and ws <= merged[-1][1] + 0.1:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], we))
-        else:
-            merged.append((ws, we))
-    # Cap each window to 25s (MMS_FA optimal range)
-    final_ranges = []
-    for ws, we in merged:
-        while we - ws > 25:
-            final_ranges.append((ws, ws + 25))
-            ws = ws + 25
-        final_ranges.append((ws, we))
-    log.info(f"  {len(final_ranges)} alignment windows (max 25s each)")
-    raw_times = forced_align(wav, romaji_list, window_ranges=final_ranges)
-    aligned = sum(1 for t in raw_times if t is not None)
-    log.info(f"  → aligned {aligned}/{len(romaji_list)} tokens")
-    token_times = interpolate_missing(raw_times, duration)
+        # Merge overlapping windows
+        merged = []
+        for ws, we in sorted(win_ranges):
+            if merged and ws <= merged[-1][1] + 0.1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], we))
+            else:
+                merged.append((ws, we))
+        # Cap each window to 25s (MMS_FA optimal range)
+        final_ranges = []
+        for ws, we in merged:
+            while we - ws > 25:
+                final_ranges.append((ws, ws + 25))
+                ws = ws + 25
+            final_ranges.append((ws, we))
+        log.info(f"  {len(final_ranges)} alignment windows (max 25s each)")
+        raw_times = forced_align(wav, romaji_list, window_ranges=final_ranges)
+        aligned = sum(1 for t in raw_times if t is not None)
+        log.info(f"  → aligned {aligned}/{len(romaji_list)} tokens")
+        token_times = interpolate_missing(raw_times, duration)
 
     # 6. Build lines with real timing + multi-chord
     log.info("6/8 Build lines with BTC chord anchoring")
@@ -623,17 +862,40 @@ def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str 
             words_out = [{"word": rws[j], "start": tt[j][0], "end": tt[j][1],
                           "romaji": rws[j]} for j in range(n) if tt[j] is not None]
             ti += n
-            # chord anchor
+
+            # chord anchor: Bug 1.1 — use user-provided [chord] marks if present,
+            # otherwise fall back to BTC anchoring (with Bug 0.3 dedup).
             line_chords = []
-            for cs, ce, cc in btc:
-                if line_start <= cs < line_end:
-                    sc = simplify_chord(cc)
-                    if sc == "N": continue
-                    bi, bd = 0, 1e9
-                    for k, w in enumerate(words_out):
-                        d = abs((w["start"]+w["end"])/2 - cs)
-                        if d < bd: bd, bi = d, k
-                    line_chords.append({"chord": sc, "start": float(cs), "anchor_word_index": bi})
+            chord_marks = (ref_chord_marks[li]
+                           if ref_chord_marks and li < len(ref_chord_marks) else [])
+            if chord_marks:
+                # User-annotated chords — distribute across line span based on
+                # character offset. More predictable than relying on
+                # interpolated word timings which may be scattered.
+                line_text_len = max(1, len(line_text))
+                for char_off, chord_str in chord_marks:
+                    frac = char_off / line_text_len
+                    bi = int(round(frac * max(0, len(words_out) - 1)))
+                    bi = min(bi, len(words_out) - 1)
+                    chord_start = line_start + frac * (line_end - line_start)
+                    line_chords.append({
+                        "chord": chord_str,
+                        "start": float(chord_start),
+                        "anchor_word_index": bi,
+                    })
+            else:
+                # BTC fallback
+                for cs, ce, cc in btc:
+                    if line_start <= cs < line_end:
+                        sc = simplify_chord(cc)
+                        if sc == "N": continue
+                        bi, bd = 0, 1e9
+                        for k, w in enumerate(words_out):
+                            d = abs((w["start"]+w["end"])/2 - cs)
+                            if d < bd: bd, bi = d, k
+                        line_chords.append({"chord": sc, "start": float(cs), "anchor_word_index": bi})
+                line_chords = _dedupe_line_chords(line_chords)
+
             lines_out.append({"line_index": len(lines_out), "start": line_start, "end": line_end,
                               "text": line_text, "words": words_out, "chords": line_chords})
     else:
@@ -659,6 +921,7 @@ def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str 
                         d = abs((w["start"]+w["end"])/2 - cs)
                         if d < bd: bd, bi = d, k
                     line_chords.append({"chord": sc, "start": float(cs), "anchor_word_index": bi})
+            line_chords = _dedupe_line_chords(line_chords)
             lines_out.append({"line_index": len(lines_out), "start": line_start, "end": line_end,
                               "text": ln["text"], "words": words_out, "chords": line_chords})
 
