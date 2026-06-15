@@ -308,18 +308,32 @@
     el.dataset.start = line.start;
     el.dataset.end = line.end;
     el.id = "line-" + line.line_index;
+    if (line.confidence === "low") el.classList.add("low-confidence");
 
     const wordsEl = document.createElement("div");
     wordsEl.className = "words";
 
-    (line.words || []).forEach((w) => {
+    (line.words || []).forEach((w, wIdx) => {
       const wrap = document.createElement("span");
       wrap.className = "word";
       wrap.dataset.start = w.start;
       wrap.dataset.end = w.end;
+      wrap.dataset.wordIndex = wIdx;
       const jp = document.createElement("span");
       jp.className = "word-jp";
-      jp.textContent = w.word;
+      // Render with inline syllable spans when syllables are present
+      if (w.syllables && w.syllables.length) {
+        w.syllables.forEach((s) => {
+          const syl = document.createElement("span");
+          syl.className = "syllable";
+          syl.dataset.start = s.start;
+          syl.dataset.end = s.end;
+          syl.textContent = s.char || s.romaji || "";
+          jp.appendChild(syl);
+        });
+      } else {
+        jp.textContent = w.word;
+      }
       const ro = document.createElement("span");
       ro.className = "word-ro";
       ro.textContent = w.romaji || "";
@@ -467,6 +481,7 @@
     document.querySelectorAll(".line.active").forEach(l => l.classList.remove("active"));
     document.querySelectorAll(".chord-marker.active").forEach(c => c.classList.remove("active"));
     document.querySelectorAll(".bar.active").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".syllable.active").forEach(s => s.classList.remove("active"));
 
     if (activeLine) {
       const lineEl = document.getElementById("line-" + activeLine.line_index);
@@ -490,6 +505,19 @@
         }
       }
       if (currentMarker) currentMarker.classList.add("active");
+
+      // Syllable-level highlight
+      const syllables = lineEl ? lineEl.querySelectorAll(".syllable") : [];
+      let activeSyllable = null;
+      for (const s of syllables) {
+        const start = parseFloat(s.dataset.start);
+        const end = parseFloat(s.dataset.end);
+        if (time >= start && time < end) {
+          activeSyllable = s;
+          break;
+        }
+      }
+      if (activeSyllable) activeSyllable.classList.add("active");
     }
 
     document.querySelectorAll(".bar").forEach((b) => {
@@ -505,16 +533,29 @@
     }
 
     // === METRONOME ON BEAT (kalau metronome on) ===
-    // Pakai BPM-based calculation (bukan beats array) supaya metronome jalan
-    // sampai akhir lagu, bukan cuma sampai beats array habis.
+    // Use beat array if available (WS-2), else fall back to BPM-based calculation
     if (state.metronomeOn) {
+      const beats = state.transposed.beats && state.transposed.beats.length > 0;
       const bpm = state.transposed.meta && state.transposed.meta.bpm;
-      if (bpm) {
+
+      if (beats) {
+        // Beat-locked metronome: fire when we cross a beat boundary
+        const beatIdx = findBeatIdx(state.transposed.beats, time);
+        if (beatIdx !== state.lastBeatIdx) {
+          const isStart = state.lastBeatIdx < 0;
+          const isNext = beatIdx - state.lastBeatIdx === 1;
+          if (isStart || isNext) {
+            const downbeats = state.transposed.downbeats || [];
+            const isDownbeat = downbeats.some(db => Math.abs(db - state.transposed.beats[beatIdx]) < 0.01);
+            playMetronomeClick(isDownbeat);
+          }
+          state.lastBeatIdx = beatIdx;
+        }
+      } else if (bpm) {
+        // Fallback: BPM-based calculation when beats array unavailable
         const beatInterval = 60 / bpm;
         const beatIdx = Math.floor(time / beatInterval);
         if (beatIdx !== state.lastBeatIdx) {
-          // Hanya fire kalau natural progression (+1) atau start.
-          // Kalau user seek jauh, skip biar nggak bunyi 10 klik bareng.
           const isStart = state.lastBeatIdx < 0;
           const isNext = beatIdx - state.lastBeatIdx === 1;
           if (isStart || isNext) {

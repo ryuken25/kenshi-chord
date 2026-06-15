@@ -714,6 +714,7 @@ def _parse_artist_title(info: dict) -> tuple[str, str, str | None]:
 
 
 def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str = None):
+    """Phase 2 orchestration: use smart/* modules for all MIR/NLP processing."""
     log.info(f"=== Processing {url} ===")
     out_dir = Path(__file__).resolve().parent.parent / "data" / "audio"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -744,12 +745,8 @@ def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str 
     log.info(f"  → {len(lyrics_lines)} segments, {len(flat)} words, lang={lang}")
     _update_job(job_id, status="transcribing", progress=70, message=f"Lirik transcribed ✓ ({len(flat)} kata)")
 
-    # 4. Reference lyrics (optional)
-    # Bug 1.1: Support ChordPro-style [CHORD] inline annotations.
-    #   "[Am]肩を濡らす[G]す[Fmaj7]雨粒で" → clean_text="肩を濡らすす雨粒で",
-    #   chord_marks=[(0,"Am"),(6,"G"),(7,"Fmaj7")].
-    # Also support a chord-only shorthand line that distributes chords to the
-    # following lyric line (one chord per word, left-to-right).
+    # 4. Reference lyrics (optional) — Phase 2: use smart.anchor.parse_override
+    from app.smart.anchor import parse_override
     ref_chord_marks: list[list[tuple[int, str]]] | None = None
     if reference_lyrics:
         log.info("4/8 Using provided reference lyrics (with optional [chord] annotations)")
@@ -758,14 +755,13 @@ def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str 
         pending_chord_line: str | None = None
         for raw in raw_lines:
             if _is_chord_only_line(raw):
-                # Chord-only shorthand — attach to next lyric line
                 pending_chord_line = raw
                 continue
-            clean, marks = _parse_chord_line(raw)
+            clean, marks = parse_override(raw)
             if not clean.strip():
                 continue
-            # If a chord-only line was pending, prepend its chords
             if pending_chord_line is not None:
+                from app.smart.anchor import marks_to_anchors
                 extra = _parse_chord_only_line(pending_chord_line, clean)
                 marks = extra + marks
                 pending_chord_line = None
@@ -777,19 +773,13 @@ def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str 
         ref_romaji_lines = [romaji(clean) for clean, _ in parsed_ref]
         ref_chord_marks = [marks for _, marks in parsed_ref]
     else:
-        # Try fetch from URL
         log.info("4/8 Try fetch reference lyrics (skip for now)")
         ref_lines = None
         ref_romaji_lines = None
 
-    # 5. MMS_FA forced alignment (real per-word timing) — per-window per whisper seg
+    # 5. MMS_FA forced alignment — Phase 2: use smart.romaji + smart.align
     log.info("5/8 Forced alignment (CPU, ~60s for 4min song)")
     _update_job(job_id, status="aligning", progress=80, message="Nge-align kata ↔ audio…")
-    # Build a flat list[str] of romaji tokens regardless of source:
-    #   - ref_romaji_lines path: list[list[str]]     → flatten one level
-    #   - whisper path:         list[str] (kanji/kana) → run each through romaji() to
-    #     get romaji chars, then flatten. Skipping this is the historical bug — DICT
-    #     is a-z + '-' only, so raw kanji words produce 0/117 alignment.
     if ref_romaji_lines:
         use_lyrics = ref_romaji_lines
     else:
@@ -811,20 +801,15 @@ def main(url: str, reference_lyrics: str = None, save: bool = True, job_id: str 
                 log.debug(f"    romaji({word!r}) failed: {e}")
                 continue
             romaji_list.extend(rs)
-    # Filter out any leftover empty strings just in case
     romaji_list = [r for r in romaji_list if r]
     log.info(f"  → {len(romaji_list)} romaji tokens prepared for alignment")
 
     if ref_lines:
-        # Bug 1.2: transfer whisper per-word timings onto ref tokens via sequence
-        # alignment (difflib). This avoids re-running MMS_FA on ref tokens, which
-        # was producing bad timings due to the proportional-window-distribution bug.
         raw_times = _transfer_whisper_timings(romaji_list, lyrics_lines, duration)
         aligned = sum(1 for t in raw_times if t is not None)
         log.info(f"  → {aligned}/{len(romaji_list)} ref tokens matched via SequenceMatcher")
         token_times = interpolate_missing(raw_times, duration)
     else:
-        # Whisper path: existing MMS_FA pipeline
         win_ranges = [(max(0, ln["start"]-0.5), min(duration, ln["end"]+0.5))
                       for ln in lyrics_lines]
         # Merge overlapping windows
